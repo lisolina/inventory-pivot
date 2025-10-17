@@ -25,7 +25,7 @@ async function getAccessToken(serviceAccountKey: ServiceAccountKey): Promise<str
   const jwtHeader = btoa(JSON.stringify({
     alg: 'RS256',
     typ: 'JWT'
-  }));
+  })).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
 
   const now = Math.floor(Date.now() / 1000);
   const jwtClaimSet = btoa(JSON.stringify({
@@ -34,20 +34,25 @@ async function getAccessToken(serviceAccountKey: ServiceAccountKey): Promise<str
     aud: 'https://oauth2.googleapis.com/token',
     exp: now + 3600,
     iat: now
-  }));
+  })).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
 
   const unsignedJwt = `${jwtHeader}.${jwtClaimSet}`;
   
-  // Import private key
+  // Import private key - handle the PEM format correctly
   const privateKey = serviceAccountKey.private_key;
-  const pemHeader = "-----BEGIN PRIVATE KEY-----";
-  const pemFooter = "-----END PRIVATE KEY-----";
-  const pemContents = privateKey.substring(
-    pemHeader.length,
-    privateKey.length - pemFooter.length
-  ).replace(/\s/g, '');
   
-  const binaryDer = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
+  // Remove PEM headers/footers and whitespace
+  const pemContents = privateKey
+    .replace(/-----BEGIN PRIVATE KEY-----/g, '')
+    .replace(/-----END PRIVATE KEY-----/g, '')
+    .replace(/\s/g, '');
+  
+  // Decode base64 to binary
+  const binaryDerString = atob(pemContents);
+  const binaryDer = new Uint8Array(binaryDerString.length);
+  for (let i = 0; i < binaryDerString.length; i++) {
+    binaryDer[i] = binaryDerString.charCodeAt(i);
+  }
   
   const key = await crypto.subtle.importKey(
     'pkcs8',
@@ -83,6 +88,12 @@ async function getAccessToken(serviceAccountKey: ServiceAccountKey): Promise<str
   });
 
   const tokenData = await tokenResponse.json();
+  
+  if (!tokenResponse.ok) {
+    console.error('Token response error:', tokenData);
+    throw new Error(`Failed to get access token: ${JSON.stringify(tokenData)}`);
+  }
+  
   return tokenData.access_token;
 }
 
