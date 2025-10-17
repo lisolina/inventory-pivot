@@ -3,12 +3,20 @@ import { IntegrationCard } from "@/components/IntegrationCard";
 import { EmailRequest } from "@/components/EmailRequest";
 import { ActivityLog } from "@/components/ActivityLog";
 import { FileSpreadsheet, ShoppingBag, Mail, Box } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+interface EmailRequestData {
+  id: string;
+  from: string;
+  subject: string;
+  receivedAt: string;
+  items: Array<{ sku: string; quantity: number; name: string }>;
+  status: "pending" | "approved" | "rejected";
+}
 
 const Index = () => {
   const { toast } = useToast();
-  const [emailRequests, setEmailRequests] = useState([
+  const [emailRequests, setEmailRequests] = useState<EmailRequestData[]>([
     {
       id: "1",
       from: "supplier@distributor.com",
@@ -19,7 +27,7 @@ const Index = () => {
         { sku: "PROD-002", quantity: -15, name: "Product B" },
         { sku: "PROD-003", quantity: -10, name: "Product C" },
       ],
-      status: "pending" as const,
+      status: "pending",
     },
     {
       id: "2",
@@ -29,7 +37,7 @@ const Index = () => {
       items: [
         { sku: "PROD-004", quantity: -100, name: "Product D" },
       ],
-      status: "approved" as const,
+      status: "approved",
     },
   ]);
 
