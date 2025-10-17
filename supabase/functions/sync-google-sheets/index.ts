@@ -41,14 +41,17 @@ async function getAccessToken(serviceAccountKey: ServiceAccountKey): Promise<str
   // Import private key - handle the PEM format correctly
   const privateKey = serviceAccountKey.private_key;
   
-  // Remove PEM headers/footers and whitespace
-  const pemContents = privateKey
-    .replace(/-----BEGIN PRIVATE KEY-----/g, '')
-    .replace(/-----END PRIVATE KEY-----/g, '')
-    .replace(/\s/g, '');
+  // Remove PEM headers/footers and normalize newlines/escapes
+  const pem = privateKey
+    .replace(/-----BEGIN [^-]+-----/g, '')
+    .replace(/-----END [^-]+-----/g, '')
+    .replace(/\\n/g, '') // remove literal "\n"
+    .replace(/\r?\n/g, '') // remove actual newlines
+    .replace(/\s+/g, '')
+    .trim();
   
   // Decode base64 to binary
-  const binaryDerString = atob(pemContents);
+  const binaryDerString = atob(pem);
   const binaryDer = new Uint8Array(binaryDerString.length);
   for (let i = 0; i < binaryDerString.length; i++) {
     binaryDer[i] = binaryDerString.charCodeAt(i);
