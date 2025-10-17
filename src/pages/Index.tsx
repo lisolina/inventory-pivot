@@ -3,6 +3,7 @@ import { IntegrationCard } from "@/components/IntegrationCard";
 import { EmailRequest } from "@/components/EmailRequest";
 import { ActivityLog } from "@/components/ActivityLog";
 import { FileSpreadsheet, ShoppingBag, Mail, Box } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface EmailRequestData {
