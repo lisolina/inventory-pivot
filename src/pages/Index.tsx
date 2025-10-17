@@ -5,6 +5,7 @@ import { ActivityLog } from "@/components/ActivityLog";
 import { FileSpreadsheet, ShoppingBag, Mail, Box } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { supabase } from "@/integrations/supabase/client";
 
 interface EmailRequestData {
   id: string;
@@ -98,11 +99,41 @@ const Index = () => {
     });
   };
 
-  const handleSync = (integration: string) => {
-    toast({
-      title: "Sync Started",
-      description: `${integration} sync initiated...`,
-    });
+  const handleSync = async (integration: string) => {
+    if (integration === "Google Sheets") {
+      try {
+        toast({
+          title: "Sync Started",
+          description: "Reading inventory from Google Sheets...",
+        });
+
+        const { data, error } = await supabase.functions.invoke('sync-google-sheets', {
+          body: { action: 'read', range: 'Sheet1!A:Z' }
+        });
+
+        if (error) throw error;
+
+        console.log('Google Sheets data:', data);
+        
+        toast({
+          title: "Sync Complete",
+          description: "Successfully synced inventory data from Google Sheets",
+        });
+      } catch (error) {
+        console.error('Sync error:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Failed to sync with Google Sheets';
+        toast({
+          title: "Sync Failed",
+          description: errorMessage,
+          variant: "destructive",
+        });
+      }
+    } else {
+      toast({
+        title: "Sync Started",
+        description: `${integration} sync initiated...`,
+      });
+    }
   };
 
   const handleConfigure = (integration: string) => {
