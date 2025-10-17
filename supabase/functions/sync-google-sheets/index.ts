@@ -100,9 +100,34 @@ async function getAccessToken(serviceAccountKey: ServiceAccountKey): Promise<str
   return tokenData.access_token;
 }
 
-async function readSheetData(accessToken: string, range: string = 'Sheet1!A:Z') {
-  const response = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${range}`,
+async function getFirstSheetTitle(accessToken: string): Promise<string> {
+  const metaRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}?fields=sheets(properties(title))`,
+    {
+      headers: { 'Authorization': `Bearer ${accessToken}` },
+    }
+  );
+  if (!metaRes.ok) {
+    const errText = await metaRes.text();
+    console.error('Sheets metadata error:', errText);
+    throw new Error(`Failed to fetch sheet metadata: ${metaRes.statusText}`);
+  }
+  const meta = await metaRes.json();
+  const title = meta?.sheets?.[0]?.properties?.title as string | undefined;
+  if (!title) throw new Error('No sheets found in spreadsheet');
+  return title;
+}
+
+async function readSheetData(accessToken: string, range?: string) {
+  // If no range provided, default to first sheet's A:Z
+  let effectiveRange = range;
+  if (!effectiveRange) {
+    const firstTitle = await getFirstSheetTitle(accessToken);
+    effectiveRange = `${firstTitle}!A:Z`;
+  }
+
+  let response = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${effectiveRange}`,
     {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
@@ -111,9 +136,33 @@ async function readSheetData(accessToken: string, range: string = 'Sheet1!A:Z') 
   );
 
   if (!response.ok) {
-    const error = await response.text();
-    console.error('Google Sheets API error:', error);
-    throw new Error(`Failed to read sheet: ${response.statusText}`);
+    let errorBody: any = undefined;
+    try { errorBody = await response.json(); } catch { errorBody = await response.text(); }
+    console.error('Google Sheets API error:', errorBody);
+
+    const message = typeof errorBody === 'object' ? errorBody?.error?.message : String(errorBody);
+
+    // Fallback: if range cannot be parsed, try first sheet automatically
+    if (message && message.includes('Unable to parse range')) {
+      const firstTitle = await getFirstSheetTitle(accessToken);
+      const fallbackRange = `${firstTitle}!A:Z`;
+      console.log(`Retrying with fallback range: ${fallbackRange}`);
+      response = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${fallbackRange}`,
+        { headers: { 'Authorization': `Bearer ${accessToken}` } }
+      );
+
+      if (!response.ok) {
+        let fbErr: any = undefined;
+        try { fbErr = await response.json(); } catch { fbErr = await response.text(); }
+        console.error('Google Sheets API fallback error:', fbErr);
+        throw new Error(`Failed to read sheet (fallback): ${response.statusText} - ${typeof fbErr === 'object' ? fbErr?.error?.message : String(fbErr)}`);
+      }
+
+      return await response.json();
+    }
+
+    throw new Error(`Failed to read sheet: ${response.statusText} - ${message || 'Unknown error'}`);
   }
 
   return await response.json();
