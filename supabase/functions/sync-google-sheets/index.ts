@@ -209,10 +209,13 @@ serve(async (req) => {
     let result;
     
     if (action === 'read') {
-      result = await readSheetData(accessToken, range || 'Sheet1!A:Z');
+      // If no range provided, let readSheetData determine the first sheet automatically
+      result = await readSheetData(accessToken, range);
       console.log('Successfully read sheet data');
     } else if (action === 'write') {
-      result = await writeSheetData(accessToken, range || 'Sheet1!A:Z', data);
+      // For writes, if no range is provided, default to first sheet A:Z
+      const targetRange = range || `${await getFirstSheetTitle(accessToken)}!A:Z`;
+      result = await writeSheetData(accessToken, targetRange, data);
       console.log('Successfully wrote sheet data');
     } else {
       throw new Error('Invalid action. Use "read" or "write"');
