@@ -3,17 +3,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
 interface InventoryItem {
-  site: string;
-  productId: string;
   productName: string;
-  supplier: string;
-  costPerUnit: string;
   reorderLevel: string;
-  casesOnHand: string;
   unitsOnHand: string;
   stockValue: string;
   reorder: string;
-  orderDate: string;
 }
 
 interface InventoryTableProps {
@@ -39,18 +33,14 @@ export const InventoryTable = ({ items }: InventoryTableProps) => {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Current Inventory</CardTitle>
+        <CardTitle>Current Inventory (Pasta & Dust)</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Site</TableHead>
-                <TableHead>Product ID</TableHead>
                 <TableHead>Product Name</TableHead>
-                <TableHead>Supplier</TableHead>
-                <TableHead className="text-right">Cost/Unit</TableHead>
                 <TableHead className="text-right">Reorder Level</TableHead>
                 <TableHead className="text-right">Units on Hand</TableHead>
                 <TableHead className="text-right">Stock Value</TableHead>
@@ -59,12 +49,8 @@ export const InventoryTable = ({ items }: InventoryTableProps) => {
             </TableHeader>
             <TableBody>
               {items.map((item, index) => (
-                <TableRow key={`${item.productId}-${index}`}>
-                  <TableCell className="font-medium">{item.site}</TableCell>
-                  <TableCell>{item.productId}</TableCell>
-                  <TableCell>{item.productName}</TableCell>
-                  <TableCell>{item.supplier}</TableCell>
-                  <TableCell className="text-right">{item.costPerUnit}</TableCell>
+                <TableRow key={`${item.productName}-${index}`}>
+                  <TableCell className="font-medium">{item.productName}</TableCell>
                   <TableCell className="text-right">{item.reorderLevel}</TableCell>
                   <TableCell className="text-right">{item.unitsOnHand}</TableCell>
                   <TableCell className="text-right">{item.stockValue}</TableCell>

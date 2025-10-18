@@ -18,17 +18,11 @@ interface EmailRequestData {
 }
 
 interface InventoryItem {
-  site: string;
-  productId: string;
   productName: string;
-  supplier: string;
-  costPerUnit: string;
   reorderLevel: string;
-  casesOnHand: string;
   unitsOnHand: string;
   stockValue: string;
   reorder: string;
-  orderDate: string;
 }
 
 const Index = () => {
@@ -148,18 +142,17 @@ const Index = () => {
               // Skip empty rows or rows without a product ID
               if (!row[2] || row[2].trim() === "") continue;
               
+              const category = row[0] || ""; // Column A is category
+              
+              // Filter for only Pasta or Dust categories
+              if (category !== "Pasta" && category !== "Dust") continue;
+              
               parsedInventory.push({
-                site: row[1] || "",
-                productId: row[2] || "",
                 productName: row[3] || "",
-                supplier: row[4] || "",
-                costPerUnit: row[5] || "",
                 reorderLevel: row[6] || "",
-                casesOnHand: row[7] || "",
                 unitsOnHand: row[8] || "",
                 stockValue: row[9] || "",
                 reorder: row[10] || "",
-                orderDate: row[11] || "",
               });
             }
             
