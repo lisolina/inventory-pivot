@@ -2,6 +2,7 @@ import { useState } from "react";
 import { IntegrationCard } from "@/components/IntegrationCard";
 import { EmailRequest } from "@/components/EmailRequest";
 import { ActivityLog } from "@/components/ActivityLog";
+import { InventoryTable } from "@/components/InventoryTable";
 import { FileSpreadsheet, ShoppingBag, Mail, Box } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -16,8 +17,23 @@ interface EmailRequestData {
   status: "pending" | "approved" | "rejected";
 }
 
+interface InventoryItem {
+  site: string;
+  productId: string;
+  productName: string;
+  supplier: string;
+  costPerUnit: string;
+  reorderLevel: string;
+  casesOnHand: string;
+  unitsOnHand: string;
+  stockValue: string;
+  reorder: string;
+  orderDate: string;
+}
+
 const Index = () => {
   const { toast } = useToast();
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [emailRequests, setEmailRequests] = useState<EmailRequestData[]>([
     {
       id: "1",
@@ -115,6 +131,42 @@ const Index = () => {
 
         console.log('Google Sheets data:', data);
         
+        // Parse the inventory data
+        if (data?.data?.values && Array.isArray(data.data.values)) {
+          const values = data.data.values;
+          // Find the header row (row with "Site", "ProductID", etc.)
+          const headerRowIndex = values.findIndex((row: string[]) => 
+            row.includes("Site") && row.includes("ProductID")
+          );
+          
+          if (headerRowIndex !== -1 && headerRowIndex < values.length - 1) {
+            const parsedInventory: InventoryItem[] = [];
+            
+            // Parse data rows (skip header and empty rows)
+            for (let i = headerRowIndex + 1; i < values.length; i++) {
+              const row = values[i];
+              // Skip empty rows or rows without a product ID
+              if (!row[2] || row[2].trim() === "") continue;
+              
+              parsedInventory.push({
+                site: row[1] || "",
+                productId: row[2] || "",
+                productName: row[3] || "",
+                supplier: row[4] || "",
+                costPerUnit: row[5] || "",
+                reorderLevel: row[6] || "",
+                casesOnHand: row[7] || "",
+                unitsOnHand: row[8] || "",
+                stockValue: row[9] || "",
+                reorder: row[10] || "",
+                orderDate: row[11] || "",
+              });
+            }
+            
+            setInventory(parsedInventory);
+          }
+        }
+        
         toast({
           title: "Sync Complete",
           description: "Successfully synced inventory data from Google Sheets",
@@ -207,6 +259,8 @@ const Index = () => {
                 />
               </div>
             </div>
+
+            <InventoryTable items={inventory} />
 
             <ActivityLog activities={activities} />
           </TabsContent>
