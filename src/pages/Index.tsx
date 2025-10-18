@@ -142,7 +142,7 @@ const Index = () => {
               // Skip empty rows or rows without a product ID
               if (!row[2] || row[2].trim() === "") continue;
               
-              const category = row[0] || ""; // Column A is category
+              const category = row[12] || ""; // Column M (index 12) is category
               
               // Filter for only Pasta or Dust categories
               if (category !== "Pasta" && category !== "Dust") continue;

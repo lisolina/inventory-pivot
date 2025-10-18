@@ -15,6 +15,12 @@ interface InventoryTableProps {
 }
 
 export const InventoryTable = ({ items }: InventoryTableProps) => {
+  // Calculate total stock value
+  const totalStockValue = items.reduce((sum, item) => {
+    const value = item.stockValue.replace(/[^0-9.-]/g, '');
+    return sum + (parseFloat(value) || 0);
+  }, 0);
+
   if (items.length === 0) {
     return (
       <Card>
@@ -31,10 +37,20 @@ export const InventoryTable = ({ items }: InventoryTableProps) => {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Current Inventory (Pasta & Dust)</CardTitle>
-      </CardHeader>
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>Total Stock Value (Pasta & Dust)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-3xl font-bold">${totalStockValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+        </CardContent>
+      </Card>
+      
+      <Card>
+        <CardHeader>
+          <CardTitle>Current Inventory (Pasta & Dust)</CardTitle>
+        </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">
           <Table>
@@ -69,5 +85,6 @@ export const InventoryTable = ({ items }: InventoryTableProps) => {
         </div>
       </CardContent>
     </Card>
+    </div>
   );
 };
