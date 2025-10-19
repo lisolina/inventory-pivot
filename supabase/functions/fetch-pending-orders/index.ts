@@ -79,16 +79,19 @@ async function fetchShopifyOrders(): Promise<PendingOrder[]> {
       }
       
       for (const item of order.line_items) {
-        // Skip Faire commission and payment processing fees
+        // Skip Faire commission and payment processing fees (case-insensitive)
         const itemTitle = item.title.toLowerCase();
-        if (itemTitle.includes('faire commission') || 
+        if (itemTitle.includes('commission') || 
             itemTitle.includes('payment processing') ||
-            itemTitle.includes('processing fee')) {
+            itemTitle.includes('processing fee') ||
+            itemTitle.includes('faire commission') ||
+            itemTitle.includes('faire payment')) {
+          console.log(`Skipping fee item: ${item.title}`);
           continue;
         }
         
         const units = item.quantity;
-        const cases = Math.ceil(units / 12); // Round up to nearest case
+        const cases = units / 12; // Calculate cases as units/12
         
         pendingOrders.push({
           id: `shopify-${order.id}-${item.product_id}`,
@@ -128,7 +131,7 @@ async function fetchEmailOrders(): Promise<PendingOrder[]> {
 
     const emailOrders: PendingOrder[] = (data || []).map(order => {
       const units = order.quantity || 0;
-      const cases = Math.ceil(units / 12);
+      const cases = units / 12; // Calculate cases as units/12
       return {
         id: `email-${order.id}`,
         poNumber: order.po_number || 'No PO#',
