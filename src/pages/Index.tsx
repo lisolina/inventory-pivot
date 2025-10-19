@@ -3,6 +3,7 @@ import { IntegrationCard } from "@/components/IntegrationCard";
 import { EmailRequest } from "@/components/EmailRequest";
 import { ActivityLog } from "@/components/ActivityLog";
 import { InventoryTable } from "@/components/InventoryTable";
+import { PendingOrders } from "@/components/PendingOrders";
 import { FileSpreadsheet, ShoppingBag, Mail, Box } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -25,9 +26,19 @@ interface InventoryItem {
   reorder: string;
 }
 
+interface PendingOrder {
+  id: string;
+  poNumber: string;
+  productName: string;
+  quantityCases: number;
+  dateOrdered: string;
+  source: "faire" | "shopify" | "email";
+}
+
 const Index = () => {
   const { toast } = useToast();
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([]);
   const [emailRequests, setEmailRequests] = useState<EmailRequestData[]>([
     {
       id: "1",
@@ -221,6 +232,8 @@ const Index = () => {
           </TabsList>
 
           <TabsContent value="dashboard" className="space-y-6">
+            <PendingOrders orders={pendingOrders} />
+            
             <InventoryTable items={inventory} />
 
             <div>
