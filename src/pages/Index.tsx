@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { IntegrationCard } from "@/components/IntegrationCard";
 import { EmailRequest } from "@/components/EmailRequest";
 import { ActivityLog } from "@/components/ActivityLog";
@@ -39,6 +39,7 @@ const Index = () => {
   const { toast } = useToast();
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([]);
+  const [isLoadingOrders, setIsLoadingOrders] = useState(true);
   const [emailRequests, setEmailRequests] = useState<EmailRequestData[]>([
     {
       id: "1",
@@ -94,6 +95,36 @@ const Index = () => {
       status: "success" as const,
     },
   ]);
+
+  // Fetch pending orders on mount
+  useEffect(() => {
+    const fetchPendingOrders = async () => {
+      try {
+        setIsLoadingOrders(true);
+        const { data, error } = await supabase.functions.invoke('fetch-pending-orders');
+        
+        if (error) {
+          console.error('Error fetching pending orders:', error);
+          toast({
+            title: "Error",
+            description: "Failed to fetch pending orders",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        if (data?.orders) {
+          setPendingOrders(data.orders);
+        }
+      } catch (error) {
+        console.error('Error:', error);
+      } finally {
+        setIsLoadingOrders(false);
+      }
+    };
+
+    fetchPendingOrders();
+  }, [toast]);
 
   const handleApprove = (id: string) => {
     setEmailRequests((prev) =>
@@ -232,7 +263,7 @@ const Index = () => {
           </TabsList>
 
           <TabsContent value="dashboard" className="space-y-6">
-            <PendingOrders orders={pendingOrders} />
+            <PendingOrders orders={pendingOrders} isLoading={isLoadingOrders} />
             
             <InventoryTable items={inventory} />
 

@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Mail, ShoppingBag, Box } from "lucide-react";
+import { Mail, ShoppingBag, Box, Loader2 } from "lucide-react";
 
 interface PendingOrder {
   id: string;
@@ -14,9 +14,10 @@ interface PendingOrder {
 
 interface PendingOrdersProps {
   orders: PendingOrder[];
+  isLoading?: boolean;
 }
 
-export const PendingOrders = ({ orders }: PendingOrdersProps) => {
+export const PendingOrders = ({ orders, isLoading = false }: PendingOrdersProps) => {
   const getSourceIcon = (source: string) => {
     switch (source) {
       case "faire":
@@ -66,7 +67,13 @@ export const PendingOrders = ({ orders }: PendingOrdersProps) => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {orders.length === 0 ? (
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center py-8">
+                    <Loader2 className="w-6 h-6 animate-spin mx-auto" />
+                  </TableCell>
+                </TableRow>
+              ) : orders.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
                     No pending orders
