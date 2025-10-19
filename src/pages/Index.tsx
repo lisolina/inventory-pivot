@@ -32,6 +32,7 @@ interface PendingOrder {
   id: string;
   poNumber: string;
   productName: string;
+  quantityUnits: number;
   quantityCases: number;
   dateOrdered: string;
   source: "faire" | "shopify" | "email";

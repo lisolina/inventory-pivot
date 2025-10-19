@@ -10,6 +10,7 @@ interface PendingOrder {
   id: string;
   poNumber: string;
   productName: string;
+  quantityUnits: number;
   quantityCases: number;
   dateOrdered: string;
   source: "faire" | "shopify" | "email";
@@ -21,6 +22,11 @@ interface ShopifyOrder {
   financial_status: string;
   fulfillment_status: string | null;
   created_at: string;
+  source_name: string;
+  note_attributes: Array<{
+    name: string;
+    value: string;
+  }>;
   line_items: Array<{
     title: string;
     quantity: number;
@@ -62,14 +68,36 @@ async function fetchShopifyOrders(): Promise<PendingOrder[]> {
     const pendingOrders: PendingOrder[] = [];
     
     for (const order of orders) {
+      // Determine if this is a Faire order based on source_name
+      const isFaireOrder = order.source_name === 'faire';
+      
+      // Get Faire order number from note_attributes if available
+      let faireOrderNumber = null;
+      if (isFaireOrder && order.note_attributes) {
+        const faireOrderAttr = order.note_attributes.find(attr => attr.name === 'faire_order_id');
+        faireOrderNumber = faireOrderAttr?.value;
+      }
+      
       for (const item of order.line_items) {
+        // Skip Faire commission and payment processing fees
+        const itemTitle = item.title.toLowerCase();
+        if (itemTitle.includes('faire commission') || 
+            itemTitle.includes('payment processing') ||
+            itemTitle.includes('processing fee')) {
+          continue;
+        }
+        
+        const units = item.quantity;
+        const cases = Math.ceil(units / 12); // Round up to nearest case
+        
         pendingOrders.push({
           id: `shopify-${order.id}-${item.product_id}`,
-          poNumber: `#${order.order_number}`,
+          poNumber: isFaireOrder && faireOrderNumber ? faireOrderNumber : `#${order.order_number}`,
           productName: item.title,
-          quantityCases: item.quantity,
+          quantityUnits: units,
+          quantityCases: cases,
           dateOrdered: new Date(order.created_at).toISOString().split('T')[0],
-          source: 'shopify',
+          source: isFaireOrder ? 'faire' : 'shopify',
         });
       }
     }
@@ -98,14 +126,19 @@ async function fetchEmailOrders(): Promise<PendingOrder[]> {
       return [];
     }
 
-    const emailOrders: PendingOrder[] = (data || []).map(order => ({
-      id: `email-${order.id}`,
-      poNumber: order.po_number || 'No PO#',
-      productName: order.product_name,
-      quantityCases: order.quantity,
-      dateOrdered: new Date(order.date_received).toISOString().split('T')[0],
-      source: 'email',
-    }));
+    const emailOrders: PendingOrder[] = (data || []).map(order => {
+      const units = order.quantity || 0;
+      const cases = Math.ceil(units / 12);
+      return {
+        id: `email-${order.id}`,
+        poNumber: order.po_number || 'No PO#',
+        productName: order.product_name,
+        quantityUnits: units,
+        quantityCases: cases,
+        dateOrdered: new Date(order.date_received).toISOString().split('T')[0],
+        source: 'email',
+      };
+    });
 
     console.log(`Fetched ${emailOrders.length} email orders`);
     return emailOrders;
@@ -139,6 +172,9 @@ serve(async (req) => {
       console.error('Failed to fetch email orders:', error);
     }
 
+    // Sort by date descending (most recent first)
+    pendingOrders.sort((a, b) => new Date(b.dateOrdered).getTime() - new Date(a.dateOrdered).getTime());
+    
     console.log('Total pending orders fetched:', pendingOrders.length);
 
     return new Response(
