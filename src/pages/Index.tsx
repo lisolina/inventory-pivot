@@ -241,9 +241,9 @@ const Index = () => {
     <div className="min-h-screen bg-background">
       <header className="border-b bg-card">
         <div className="container mx-auto px-6 py-4">
-          <h1 className="text-2xl font-bold">Inventory Management System</h1>
+          <h1 className="text-2xl font-bold text-[hsl(6,81%,55%)]">L'Isolina Inventory Management System</h1>
           <p className="text-muted-foreground">
-            Centralized inventory sync across Google Sheets, Shopify, Email, and Faire
+            Here's what the fuck is up with your whole shit
           </p>
         </div>
       </header>
