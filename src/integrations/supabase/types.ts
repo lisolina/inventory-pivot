@@ -14,7 +14,45 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      email_orders: {
+        Row: {
+          created_at: string
+          date_received: string
+          email_from: string
+          email_subject: string
+          id: string
+          po_number: string | null
+          processed: boolean
+          product_name: string | null
+          quantity: number | null
+          raw_email_body: string | null
+        }
+        Insert: {
+          created_at?: string
+          date_received?: string
+          email_from: string
+          email_subject: string
+          id?: string
+          po_number?: string | null
+          processed?: boolean
+          product_name?: string | null
+          quantity?: number | null
+          raw_email_body?: string | null
+        }
+        Update: {
+          created_at?: string
+          date_received?: string
+          email_from?: string
+          email_subject?: string
+          id?: string
+          po_number?: string | null
+          processed?: boolean
+          product_name?: string | null
+          quantity?: number | null
+          raw_email_body?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

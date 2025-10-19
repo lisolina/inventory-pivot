@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.75.1';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -80,6 +81,40 @@ async function fetchShopifyOrders(): Promise<PendingOrder[]> {
   }
 }
 
+async function fetchEmailOrders(): Promise<PendingOrder[]> {
+  try {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    const { data, error } = await supabase
+      .from('email_orders')
+      .select('*')
+      .eq('processed', false)
+      .order('date_received', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching email orders:', error);
+      return [];
+    }
+
+    const emailOrders: PendingOrder[] = (data || []).map(order => ({
+      id: `email-${order.id}`,
+      poNumber: order.po_number || 'No PO#',
+      productName: order.product_name,
+      quantityCases: order.quantity,
+      dateOrdered: new Date(order.date_received).toISOString().split('T')[0],
+      source: 'email',
+    }));
+
+    console.log(`Fetched ${emailOrders.length} email orders`);
+    return emailOrders;
+  } catch (error) {
+    console.error('Error fetching email orders:', error);
+    return [];
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -96,9 +131,13 @@ serve(async (req) => {
       console.error('Failed to fetch Shopify orders:', error);
     }
     
-    // TODO: Parse emails from orders@lisolinapasta.com
-    // You'll need to set up email forwarding/parsing service
-    // Options: SendGrid Inbound Parse, Mailgun Routes, or direct IMAP integration
+    // Fetch orders from email
+    try {
+      const emailOrders = await fetchEmailOrders();
+      pendingOrders.push(...emailOrders);
+    } catch (error) {
+      console.error('Failed to fetch email orders:', error);
+    }
 
     console.log('Total pending orders fetched:', pendingOrders.length);
 
