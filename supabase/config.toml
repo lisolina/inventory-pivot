@@ -2,3 +2,6 @@ project_id = "ctolbfzqhvamzdbnywyc"
 
 [functions.parse-email-order]
 verify_jwt = false
+
+[functions.receive-forwarded-email]
+verify_jwt = false

@@ -53,6 +53,39 @@ export type Database = {
         }
         Relationships: []
       }
+      forwarded_emails: {
+        Row: {
+          created_at: string
+          email_body: string | null
+          email_from: string
+          email_subject: string
+          id: string
+          notes: string | null
+          received_at: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          email_body?: string | null
+          email_from: string
+          email_subject: string
+          id?: string
+          notes?: string | null
+          received_at?: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          email_body?: string | null
+          email_from?: string
+          email_subject?: string
+          id?: string
+          notes?: string | null
+          received_at?: string
+          status?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
