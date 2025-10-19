@@ -156,6 +156,13 @@ const Index = () => {
               });
             }
             
+            // Sort by units on hand descending
+            parsedInventory.sort((a, b) => {
+              const unitsA = parseInt(a.unitsOnHand.replace(/[^0-9-]/g, '')) || 0;
+              const unitsB = parseInt(b.unitsOnHand.replace(/[^0-9-]/g, '')) || 0;
+              return unitsB - unitsA;
+            });
+            
             setInventory(parsedInventory);
           }
         }
@@ -214,6 +221,8 @@ const Index = () => {
           </TabsList>
 
           <TabsContent value="dashboard" className="space-y-6">
+            <InventoryTable items={inventory} />
+
             <div>
               <h2 className="text-xl font-semibold mb-4">Integrations</h2>
               <div className="grid md:grid-cols-2 gap-4">
@@ -252,8 +261,6 @@ const Index = () => {
                 />
               </div>
             </div>
-
-            <InventoryTable items={inventory} />
 
             <ActivityLog activities={activities} />
           </TabsContent>

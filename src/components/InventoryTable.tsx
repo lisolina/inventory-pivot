@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 
 interface InventoryItem {
   productName: string;
@@ -15,8 +17,15 @@ interface InventoryTableProps {
 }
 
 export const InventoryTable = ({ items }: InventoryTableProps) => {
-  // Calculate total stock value
-  const totalStockValue = items.reduce((sum, item) => {
+  const [filter, setFilter] = useState("");
+
+  // Filter items based on search input
+  const filteredItems = items.filter(item => 
+    item.productName.toLowerCase().includes(filter.toLowerCase())
+  );
+
+  // Calculate total stock value from filtered items
+  const totalStockValue = filteredItems.reduce((sum, item) => {
     const value = item.stockValue.replace(/[^0-9.-]/g, '');
     return sum + (parseFloat(value) || 0);
   }, 0);
@@ -52,6 +61,14 @@ export const InventoryTable = ({ items }: InventoryTableProps) => {
           <CardTitle>Current Inventory (Pasta & Dust)</CardTitle>
         </CardHeader>
       <CardContent>
+        <div className="mb-4">
+          <Input 
+            placeholder="Filter products..." 
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            className="max-w-sm"
+          />
+        </div>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
@@ -64,7 +81,7 @@ export const InventoryTable = ({ items }: InventoryTableProps) => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {items.map((item, index) => (
+              {filteredItems.map((item, index) => (
                 <TableRow key={`${item.productName}-${index}`}>
                   <TableCell className="font-medium">{item.productName}</TableCell>
                   <TableCell className="text-right">{item.reorderLevel}</TableCell>
