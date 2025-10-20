@@ -370,9 +370,9 @@ const Index = () => {
           <TabsContent value="dashboard" className="space-y-6">
             <PendingOrders orders={pendingOrders} isLoading={isLoadingOrders} />
             
-            <VelocityTracker />
-            
             <InventoryTable items={inventory} />
+            
+            <VelocityTracker />
 
             <div>
               <h2 className="text-xl font-semibold mb-4">Integrations</h2>

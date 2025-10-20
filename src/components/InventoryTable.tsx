@@ -46,20 +46,16 @@ export const InventoryTable = ({ items }: InventoryTableProps) => {
   }
 
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>Total Stock Value (Pasta & Dust)</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-3xl font-bold">${totalStockValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-        </CardContent>
-      </Card>
-      
-      <Card>
-        <CardHeader>
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
           <CardTitle>Current Inventory (Pasta & Dust)</CardTitle>
-        </CardHeader>
+          <div className="text-right">
+            <p className="text-sm text-muted-foreground">Total Stock Value</p>
+            <p className="text-2xl font-bold">${totalStockValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+          </div>
+        </div>
+      </CardHeader>
       <CardContent>
         <div className="mb-4">
           <Input 
@@ -106,6 +102,5 @@ export const InventoryTable = ({ items }: InventoryTableProps) => {
         </div>
       </CardContent>
     </Card>
-    </div>
   );
 };
