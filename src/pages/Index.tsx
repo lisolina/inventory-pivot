@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { IntegrationCard } from "@/components/IntegrationCard";
 import { EmailRequest } from "@/components/EmailRequest";
 import { ForwardedEmail } from "@/components/ForwardedEmail";
@@ -6,13 +7,14 @@ import { ActivityLog } from "@/components/ActivityLog";
 import { InventoryTable } from "@/components/InventoryTable";
 import { PendingOrders } from "@/components/PendingOrders";
 import { VelocityTracker } from "@/components/VelocityTracker";
-import { FileSpreadsheet, ShoppingBag, Mail, Box, ChevronDown } from "lucide-react";
+import { FileSpreadsheet, ShoppingBag, Mail, Box, ChevronDown, LogOut } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
+import { Session } from "@supabase/supabase-js";
 
 interface EmailRequestData {
   id: string;
@@ -53,12 +55,40 @@ interface ForwardedEmailData {
 }
 
 const Index = () => {
+  const navigate = useNavigate();
   const { toast } = useToast();
+  const [session, setSession] = useState<Session | null>(null);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([]);
   const [isLoadingOrders, setIsLoadingOrders] = useState(true);
   const [forwardedEmails, setForwardedEmails] = useState<ForwardedEmailData[]>([]);
   const [integrationsOpen, setIntegrationsOpen] = useState(false);
+
+  // Auth check
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        setSession(session);
+        if (!session) {
+          navigate("/auth");
+        }
+      }
+    );
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (!session) {
+        navigate("/auth");
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [navigate]);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    navigate("/auth");
+  };
   const [emailRequests, setEmailRequests] = useState<EmailRequestData[]>([
     {
       id: "1",
@@ -339,14 +369,24 @@ const Index = () => {
     }
   };
 
+  if (!session) {
+    return null; // Will redirect to /auth
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b bg-card">
-        <div className="container mx-auto px-6 py-4">
-          <h1 className="text-2xl font-bold text-[hsl(6,81%,55%)]">L'Isolina Inventory Management System</h1>
-          <p className="text-muted-foreground">
-            Here's what the fuck is up with your whole shit
-          </p>
+        <div className="container mx-auto px-6 py-4 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-[hsl(6,81%,55%)]">L'Isolina Inventory Management System</h1>
+            <p className="text-muted-foreground">
+              Here's what the fuck is up with your whole shit
+            </p>
+          </div>
+          <Button variant="ghost" size="sm" onClick={handleLogout}>
+            <LogOut className="h-4 w-4 mr-2" />
+            Logout
+          </Button>
         </div>
       </header>
 
