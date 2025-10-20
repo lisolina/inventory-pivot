@@ -82,7 +82,11 @@ export const InventoryTable = ({ items }: InventoryTableProps) => {
             </TableHeader>
             <TableBody>
               {filteredItems.map((item, index) => (
-                <TableRow key={`${item.productName}-${index}`}>
+                <TableRow 
+                  key={`${item.productName}-${index}`}
+                  className="cursor-pointer hover:bg-muted/50"
+                  onClick={() => window.open('https://docs.google.com/spreadsheets/d/1hpuGxJQ1CdD89X0UuKKfK3z_CzhRMVqLPm0oZlp5p6k/edit?gid=0#gid=0', '_blank')}
+                >
                   <TableCell className="font-medium">{item.productName}</TableCell>
                   <TableCell className="text-right">{item.reorderLevel}</TableCell>
                   <TableCell className="text-right">{item.unitsOnHand}</TableCell>
@@ -92,7 +96,7 @@ export const InventoryTable = ({ items }: InventoryTableProps) => {
                       <Badge variant="destructive">Reorder</Badge>
                     )}
                     {item.reorder === "No" && (
-                      <Badge variant="secondary">In Stock</Badge>
+                      <Badge className="bg-green-500/10 text-green-500 hover:bg-green-500/20">In Stock</Badge>
                     )}
                   </TableCell>
                 </TableRow>

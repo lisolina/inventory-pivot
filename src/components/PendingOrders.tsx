@@ -90,7 +90,11 @@ export const PendingOrders = ({ orders, isLoading = false }: PendingOrdersProps)
               ) : (
                 <>
                   {displayedOrders.map((order) => (
-                    <TableRow key={order.id}>
+                    <TableRow 
+                      key={order.id}
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => window.open('https://admin.shopify.com/store/lisolina/orders', '_blank')}
+                    >
                       <TableCell>
                         <Badge className={getSourceColor(order.source)}>
                           <span className="flex items-center gap-1">
