@@ -6,11 +6,13 @@ import { ActivityLog } from "@/components/ActivityLog";
 import { InventoryTable } from "@/components/InventoryTable";
 import { PendingOrders } from "@/components/PendingOrders";
 import { VelocityTracker } from "@/components/VelocityTracker";
-import { FileSpreadsheet, ShoppingBag, Mail, Box } from "lucide-react";
+import { FileSpreadsheet, ShoppingBag, Mail, Box, ChevronDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Button } from "@/components/ui/button";
 
 interface EmailRequestData {
   id: string;
@@ -25,6 +27,7 @@ interface InventoryItem {
   productName: string;
   reorderLevel: string;
   unitsOnHand: string;
+  casesOnHand: string;
   stockValue: string;
   reorder: string;
 }
@@ -55,6 +58,7 @@ const Index = () => {
   const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([]);
   const [isLoadingOrders, setIsLoadingOrders] = useState(true);
   const [forwardedEmails, setForwardedEmails] = useState<ForwardedEmailData[]>([]);
+  const [integrationsOpen, setIntegrationsOpen] = useState(false);
   const [emailRequests, setEmailRequests] = useState<EmailRequestData[]>([
     {
       id: "1",
@@ -229,6 +233,7 @@ const Index = () => {
                 productName: row[3] || "",
                 reorderLevel: row[6] || "",
                 unitsOnHand: row[8] || "",
+                casesOnHand: row[7] || "",
                 stockValue: row[9] || "",
                 reorder: row[10] || "",
               });
@@ -368,50 +373,74 @@ const Index = () => {
           </TabsList>
 
           <TabsContent value="dashboard" className="space-y-6">
-            <PendingOrders orders={pendingOrders} isLoading={isLoadingOrders} />
+            <PendingOrders 
+              orders={pendingOrders} 
+              isLoading={isLoadingOrders}
+              onRefresh={async () => {
+                setIsLoadingOrders(true);
+                const { data, error } = await supabase.functions.invoke('fetch-pending-orders');
+                if (!error && data?.orders) {
+                  setPendingOrders(data.orders);
+                  toast({ title: "Success", description: "Pending orders refreshed" });
+                }
+                setIsLoadingOrders(false);
+              }}
+            />
             
-            <InventoryTable items={inventory} />
+            <InventoryTable 
+              items={inventory}
+              onRefresh={() => handleSync("Google Sheets")}
+            />
             
             <VelocityTracker />
 
-            <div>
-              <h2 className="text-xl font-semibold mb-4">Integrations</h2>
-              <div className="grid md:grid-cols-2 gap-4">
-                <IntegrationCard
-                  title="Google Sheets"
-                  description="Primary inventory source"
-                  icon={FileSpreadsheet}
-                  status="connected"
-                  lastSync="10 minutes ago"
-                  onConfigure={() => handleConfigure("Google Sheets")}
-                  onSync={() => handleSync("Google Sheets")}
-                />
-                <IntegrationCard
-                  title="Shopify"
-                  description="E-commerce inventory sync"
-                  icon={ShoppingBag}
-                  status="connected"
-                  lastSync="10 minutes ago"
-                  onConfigure={() => handleConfigure("Shopify")}
-                  onSync={() => handleSync("Shopify")}
-                />
-                <IntegrationCard
-                  title="Email (Distributors)"
-                  description="Process distributor orders"
-                  icon={Mail}
-                  status="connected"
-                  lastSync="2 hours ago"
-                  onConfigure={() => handleConfigure("Email")}
-                />
-                <IntegrationCard
-                  title="Faire"
-                  description="Wholesale marketplace sync"
-                  icon={Box}
-                  status="disconnected"
-                  onConfigure={() => handleConfigure("Faire")}
-                />
+            <Collapsible open={integrationsOpen} onOpenChange={setIntegrationsOpen}>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold">Integrations</h2>
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" size="sm">
+                    <ChevronDown className={`h-4 w-4 transition-transform ${integrationsOpen ? 'rotate-180' : ''}`} />
+                  </Button>
+                </CollapsibleTrigger>
               </div>
-            </div>
+              <CollapsibleContent>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <IntegrationCard
+                    title="Google Sheets"
+                    description="Primary inventory source"
+                    icon={FileSpreadsheet}
+                    status="connected"
+                    lastSync="10 minutes ago"
+                    onConfigure={() => handleConfigure("Google Sheets")}
+                    onSync={() => handleSync("Google Sheets")}
+                  />
+                  <IntegrationCard
+                    title="Shopify"
+                    description="E-commerce inventory sync"
+                    icon={ShoppingBag}
+                    status="connected"
+                    lastSync="10 minutes ago"
+                    onConfigure={() => handleConfigure("Shopify")}
+                    onSync={() => handleSync("Shopify")}
+                  />
+                  <IntegrationCard
+                    title="Email (Distributors)"
+                    description="Process distributor orders"
+                    icon={Mail}
+                    status="connected"
+                    lastSync="2 hours ago"
+                    onConfigure={() => handleConfigure("Email")}
+                  />
+                  <IntegrationCard
+                    title="Faire"
+                    description="Wholesale marketplace sync"
+                    icon={Box}
+                    status="disconnected"
+                    onConfigure={() => handleConfigure("Faire")}
+                  />
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
 
             <ActivityLog activities={activities} />
           </TabsContent>

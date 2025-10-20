@@ -3,20 +3,24 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { RefreshCw } from "lucide-react";
 
 interface InventoryItem {
   productName: string;
   reorderLevel: string;
   unitsOnHand: string;
+  casesOnHand: string;
   stockValue: string;
   reorder: string;
 }
 
 interface InventoryTableProps {
   items: InventoryItem[];
+  onRefresh?: () => void;
 }
 
-export const InventoryTable = ({ items }: InventoryTableProps) => {
+export const InventoryTable = ({ items, onRefresh }: InventoryTableProps) => {
   const [filter, setFilter] = useState("");
 
   // Filter items based on search input
@@ -49,7 +53,19 @@ export const InventoryTable = ({ items }: InventoryTableProps) => {
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle>Current Inventory (Pasta & Dust)</CardTitle>
+          <div className="flex items-center gap-2">
+            <CardTitle>Current Inventory (Pasta & Dust)</CardTitle>
+            {onRefresh && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onRefresh}
+                className="h-8 w-8"
+              >
+                <RefreshCw className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
           <div className="text-right">
             <p className="text-sm text-muted-foreground">Total Stock Value</p>
             <p className="text-2xl font-bold">${totalStockValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
@@ -72,6 +88,7 @@ export const InventoryTable = ({ items }: InventoryTableProps) => {
                 <TableHead>Product Name</TableHead>
                 <TableHead className="text-right">Reorder Level</TableHead>
                 <TableHead className="text-right">Units on Hand</TableHead>
+                <TableHead className="text-right">Cases on Hand</TableHead>
                 <TableHead className="text-right">Stock Value</TableHead>
                 <TableHead className="text-center">Reorder</TableHead>
               </TableRow>
@@ -86,6 +103,7 @@ export const InventoryTable = ({ items }: InventoryTableProps) => {
                   <TableCell className="font-medium">{item.productName}</TableCell>
                   <TableCell className="text-right">{item.reorderLevel}</TableCell>
                   <TableCell className="text-right">{item.unitsOnHand}</TableCell>
+                  <TableCell className="text-right">{item.casesOnHand}</TableCell>
                   <TableCell className="text-right">{item.stockValue}</TableCell>
                   <TableCell className="text-center">
                     {item.reorder === "Yes" && (

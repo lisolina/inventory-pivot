@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Mail, ShoppingBag, Box, Loader2, ChevronDown } from "lucide-react";
+import { Mail, ShoppingBag, Box, Loader2, ChevronDown, RefreshCw } from "lucide-react";
 
 interface PendingOrder {
   id: string;
@@ -18,9 +18,10 @@ interface PendingOrder {
 interface PendingOrdersProps {
   orders: PendingOrder[];
   isLoading?: boolean;
+  onRefresh?: () => void;
 }
 
-export const PendingOrders = ({ orders, isLoading = false }: PendingOrdersProps) => {
+export const PendingOrders = ({ orders, isLoading = false, onRefresh }: PendingOrdersProps) => {
   const [showAll, setShowAll] = useState(false);
   const displayedOrders = showAll ? orders : orders.slice(0, 10);
   const hasMore = orders.length > 10;
@@ -55,7 +56,19 @@ export const PendingOrders = ({ orders, isLoading = false }: PendingOrdersProps)
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle>Pending Orders</CardTitle>
+          <div className="flex items-center gap-2">
+            <CardTitle>Pending Orders</CardTitle>
+            {onRefresh && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onRefresh}
+                className="h-8 w-8"
+              >
+                <RefreshCw className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
           <Badge variant="secondary" className="text-lg px-3 py-1">
             {orders.length} Orders
           </Badge>

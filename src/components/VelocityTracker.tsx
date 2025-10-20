@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, TrendingUp, Box, ShoppingBag } from "lucide-react";
+import { Loader2, TrendingUp, Box, ShoppingBag, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
@@ -97,6 +97,14 @@ export const VelocityTracker = () => {
             <CardTitle className="flex items-center gap-2">
               <TrendingUp className="w-5 h-5" />
               Sales Velocity Tracker
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={fetchVelocityData}
+                className="h-8 w-8"
+              >
+                <RefreshCw className="h-4 w-4" />
+              </Button>
             </CardTitle>
             <CardDescription>
               Track sales performance over time to optimize inventory levels
