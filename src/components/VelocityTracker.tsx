@@ -3,7 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, TrendingUp, Box, ShoppingBag, RefreshCw } from "lucide-react";
+import { Loader2, TrendingUp, Box, ShoppingBag, RefreshCw, Info } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
@@ -14,6 +15,17 @@ interface ProductVelocity {
   avgUnitsPerDay: number;
   avgCasesPerDay: number;
   source: "faire" | "shopify" | "mixed";
+}
+
+interface InventoryItem {
+  productName: string;
+  unitsOnHand: number;
+  casesOnHand: number;
+}
+
+interface PendingOrder {
+  productName: string;
+  quantity: number;
 }
 
 type TimePeriod = 7 | 30 | 90 | 180;
@@ -29,6 +41,8 @@ export const VelocityTracker = () => {
   const { toast } = useToast();
   const [selectedPeriod, setSelectedPeriod] = useState<TimePeriod>(30);
   const [velocityData, setVelocityData] = useState<ProductVelocity[]>([]);
+  const [inventoryData, setInventoryData] = useState<InventoryItem[]>([]);
+  const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -38,12 +52,14 @@ export const VelocityTracker = () => {
   const fetchVelocityData = async () => {
     try {
       setIsLoading(true);
-      const { data, error } = await supabase.functions.invoke('fetch-sales-velocity', {
+      
+      // Fetch velocity data
+      const { data: velocityResponse, error: velocityError } = await supabase.functions.invoke('fetch-sales-velocity', {
         body: { period: selectedPeriod.toString() }
       });
 
-      if (error) {
-        console.error('Error fetching velocity data:', error);
+      if (velocityError) {
+        console.error('Error fetching velocity data:', velocityError);
         toast({
           title: "Error",
           description: "Failed to fetch sales velocity data",
@@ -52,8 +68,34 @@ export const VelocityTracker = () => {
         return;
       }
 
-      if (data?.velocityData) {
-        setVelocityData(data.velocityData);
+      if (velocityResponse?.velocityData) {
+        setVelocityData(velocityResponse.velocityData);
+      }
+
+      // Fetch inventory data
+      const { data: inventoryResponse, error: inventoryError } = await supabase.functions.invoke('sync-google-sheets');
+      
+      if (!inventoryError && inventoryResponse?.data) {
+        const inventory: InventoryItem[] = inventoryResponse.data.map((row: any[]) => ({
+          productName: row[0],
+          unitsOnHand: parseFloat(row[6]) || 0,
+          casesOnHand: parseFloat(row[7]) || 0,
+        }));
+        setInventoryData(inventory);
+      }
+
+      // Fetch pending orders
+      const { data: ordersData, error: ordersError } = await supabase
+        .from('email_orders')
+        .select('product_name, quantity')
+        .eq('processed', false);
+
+      if (!ordersError && ordersData) {
+        const pending: PendingOrder[] = ordersData.map(order => ({
+          productName: order.product_name || '',
+          quantity: order.quantity || 0,
+        }));
+        setPendingOrders(pending);
       }
     } catch (error) {
       console.error('Error:', error);
@@ -135,7 +177,21 @@ export const VelocityTracker = () => {
                 <TableHead className="text-right">Total Cases Sold</TableHead>
                 <TableHead className="text-right">Avg Units/Day</TableHead>
                 <TableHead className="text-right">Avg Cases/Day</TableHead>
-                <TableHead className="text-right">Suggested Reorder</TableHead>
+                <TableHead className="text-right">
+                  <div className="flex items-center justify-end gap-1">
+                    Suggested Reorder
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs">
+                          <p>Calculated to maintain 8 weeks of inventory based on average daily sales, minus current inventory and outstanding orders.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -153,8 +209,23 @@ export const VelocityTracker = () => {
                 </TableRow>
               ) : (
                 velocityData.map((product, index) => {
-                  // Calculate suggested reorder level (2 weeks of average daily sales)
-                  const suggestedReorderCases = Math.ceil(product.avgCasesPerDay * 14);
+                  // Calculate suggested reorder level (8 weeks of inventory on hand)
+                  const weeksToMaintain = 8;
+                  const targetUnits = product.avgUnitsPerDay * weeksToMaintain * 7; // 8 weeks = 56 days
+                  
+                  // Find current inventory for this product
+                  const currentInventory = inventoryData.find(
+                    inv => inv.productName.toLowerCase() === product.productName.toLowerCase()
+                  );
+                  const currentUnits = currentInventory?.unitsOnHand || 0;
+                  
+                  // Find outstanding orders for this product
+                  const outstandingUnits = pendingOrders
+                    .filter(order => order.productName.toLowerCase() === product.productName.toLowerCase())
+                    .reduce((sum, order) => sum + order.quantity, 0);
+                  
+                  // Calculate suggested reorder: target - current - outstanding
+                  const suggestedReorderUnits = Math.max(0, Math.ceil(targetUnits - currentUnits - outstandingUnits));
                   
                   return (
                     <TableRow key={`${product.productName}-${index}`}>
@@ -174,7 +245,7 @@ export const VelocityTracker = () => {
                       <TableCell className="text-right">{product.avgCasesPerDay.toFixed(2)}</TableCell>
                       <TableCell className="text-right">
                         <Badge variant="secondary">
-                          {suggestedReorderCases} cases
+                          {suggestedReorderUnits} units
                         </Badge>
                       </TableCell>
                     </TableRow>
