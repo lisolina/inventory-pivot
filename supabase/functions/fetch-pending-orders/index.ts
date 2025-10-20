@@ -74,9 +74,15 @@ async function fetchShopifyOrders(): Promise<PendingOrder[]> {
       // Get Faire order number from note_attributes if available
       let faireOrderNumber = null;
       if (isFaireOrder && order.note_attributes) {
-        const faireOrderAttr = order.note_attributes.find(attr => attr.name === 'faire_order_id');
+        const faireOrderAttr = order.note_attributes.find(attr => 
+          attr.name === 'faire_order_id' || attr.name === 'Faire Order ID'
+        );
         faireOrderNumber = faireOrderAttr?.value;
       }
+      
+      // Format date as M/D/YYYY
+      const orderDate = new Date(order.created_at);
+      const formattedDate = `${orderDate.getMonth() + 1}/${orderDate.getDate()}/${orderDate.getFullYear()}`;
       
       for (const item of order.line_items) {
         // Skip Faire commission and payment processing fees (case-insensitive)
@@ -99,7 +105,7 @@ async function fetchShopifyOrders(): Promise<PendingOrder[]> {
           productName: item.title,
           quantityUnits: units,
           quantityCases: cases,
-          dateOrdered: new Date(order.created_at).toISOString().split('T')[0],
+          dateOrdered: formattedDate,
           source: isFaireOrder ? 'faire' : 'shopify',
         });
       }
@@ -132,13 +138,18 @@ async function fetchEmailOrders(): Promise<PendingOrder[]> {
     const emailOrders: PendingOrder[] = (data || []).map(order => {
       const units = order.quantity || 0;
       const cases = units / 12; // Calculate cases as units/12
+      
+      // Format date as M/D/YYYY
+      const orderDate = new Date(order.date_received);
+      const formattedDate = `${orderDate.getMonth() + 1}/${orderDate.getDate()}/${orderDate.getFullYear()}`;
+      
       return {
         id: `email-${order.id}`,
         poNumber: order.po_number || 'No PO#',
         productName: order.product_name,
         quantityUnits: units,
         quantityCases: cases,
-        dateOrdered: new Date(order.date_received).toISOString().split('T')[0],
+        dateOrdered: formattedDate,
         source: 'email',
       };
     });
