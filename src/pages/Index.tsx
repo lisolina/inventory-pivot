@@ -5,6 +5,7 @@ import { ForwardedEmail } from "@/components/ForwardedEmail";
 import { ActivityLog } from "@/components/ActivityLog";
 import { InventoryTable } from "@/components/InventoryTable";
 import { PendingOrders } from "@/components/PendingOrders";
+import { VelocityTracker } from "@/components/VelocityTracker";
 import { FileSpreadsheet, ShoppingBag, Mail, Box } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -368,6 +369,8 @@ const Index = () => {
 
           <TabsContent value="dashboard" className="space-y-6">
             <PendingOrders orders={pendingOrders} isLoading={isLoadingOrders} />
+            
+            <VelocityTracker />
             
             <InventoryTable items={inventory} />
 
