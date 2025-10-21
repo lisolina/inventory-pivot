@@ -63,6 +63,7 @@ const Index = () => {
   const [isLoadingOrders, setIsLoadingOrders] = useState(true);
   const [forwardedEmails, setForwardedEmails] = useState<ForwardedEmailData[]>([]);
   const [integrationsOpen, setIntegrationsOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Auth check
   useEffect(() => {
@@ -195,6 +196,39 @@ const Index = () => {
     fetchPendingOrders();
     fetchForwardedEmails();
   }, [toast]);
+
+  const handleFetchGmailOrders = async () => {
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('fetch-gmail-orders');
+      
+      if (error) throw error;
+
+      toast({
+        title: "Gmail Sync Complete",
+        description: `Processed ${data.processed} new emails out of ${data.total} found`,
+      });
+
+      // Refresh the forwarded emails list
+      const { data: emailsData, error: emailsError } = await supabase
+        .from('forwarded_emails')
+        .select('*')
+        .order('received_at', { ascending: false });
+
+      if (!emailsError && emailsData) {
+        setForwardedEmails(emailsData);
+      }
+    } catch (error) {
+      console.error('Error fetching Gmail orders:', error);
+      toast({
+        title: "Error",
+        description: "Failed to fetch Gmail orders. Make sure your Google Service Account has access to Gmail API.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleApprove = (id: string) => {
     setEmailRequests((prev) =>
@@ -487,10 +521,17 @@ const Index = () => {
 
           <TabsContent value="forwarded" className="space-y-6">
             <div>
-              <h2 className="text-2xl font-semibold mb-4">Forwarded Emails</h2>
-              <p className="text-muted-foreground mb-6">
-                Forward emails to your webhook to triage them as orders or tasks.
-              </p>
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-2xl font-semibold">Forwarded Emails</h2>
+                  <p className="text-muted-foreground mt-1">
+                    Forward emails to your webhook or sync from Gmail orders@ alias
+                  </p>
+                </div>
+                <Button onClick={handleFetchGmailOrders} disabled={isLoading}>
+                  {isLoading ? "Fetching..." : "Fetch from Gmail"}
+                </Button>
+              </div>
               {forwardedEmails.length === 0 ? (
                 <Card>
                   <CardContent className="py-8 text-center text-muted-foreground">

@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.receive-forwarded-email]
 verify_jwt = false
+
+[functions.fetch-gmail-orders]
+verify_jwt = false
