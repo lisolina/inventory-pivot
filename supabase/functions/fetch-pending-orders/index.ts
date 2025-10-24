@@ -44,25 +44,48 @@ async function fetchShopifyOrders(): Promise<PendingOrder[]> {
   }
 
   try {
-    // Fetch unfulfilled orders from Shopify
-    const response = await fetch(
-      `https://${shopifyStoreUrl}/admin/api/2024-01/orders.json?status=any&fulfillment_status=unfulfilled`,
-      {
+    let allOrders: ShopifyOrder[] = [];
+    let pageUrl = `https://${shopifyStoreUrl}/admin/api/2024-01/orders.json?status=any&fulfillment_status=unfulfilled&limit=250`;
+    
+    // Fetch all pages of orders
+    while (pageUrl) {
+      const response = await fetch(pageUrl, {
         headers: {
           'X-Shopify-Access-Token': shopifyApiKey,
           'Content-Type': 'application/json',
         },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Shopify API error: ${response.status} ${response.statusText}`);
       }
-    );
 
-    if (!response.ok) {
-      throw new Error(`Shopify API error: ${response.status} ${response.statusText}`);
+      const data = await response.json();
+      const orders: ShopifyOrder[] = data.orders || [];
+      allOrders = allOrders.concat(orders);
+      
+      console.log(`Fetched ${orders.length} orders (total: ${allOrders.length})`);
+      
+      // Check for next page in Link header
+      const linkHeader = response.headers.get('Link');
+      pageUrl = '';
+      
+      if (linkHeader) {
+        const links = linkHeader.split(',');
+        for (const link of links) {
+          if (link.includes('rel="next"')) {
+            const match = link.match(/<([^>]+)>/);
+            if (match) {
+              pageUrl = match[1];
+            }
+            break;
+          }
+        }
+      }
     }
-
-    const data = await response.json();
-    const orders: ShopifyOrder[] = data.orders || [];
     
-    console.log(`Fetched ${orders.length} unfulfilled orders from Shopify`);
+    console.log(`Fetched total of ${allOrders.length} unfulfilled orders from Shopify`);
+    const orders = allOrders;
 
     // Transform Shopify orders to our PendingOrder format
     const pendingOrders: PendingOrder[] = [];
