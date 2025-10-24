@@ -223,37 +223,71 @@ serve(async (req) => {
       // Parse and store inventory data in the database
       if (result?.values && Array.isArray(result.values)) {
         const values = result.values;
+        
+        // Find header row - look for "ProductID" or "ProductName"
         const headerRowIndex = values.findIndex((row: string[]) => 
-          row.includes("Site") && row.includes("ProductID")
+          row.some(cell => cell && (cell.includes("ProductID") || cell.includes("ProductName")))
         );
         
+        console.log('Found header at row:', headerRowIndex);
+        
         if (headerRowIndex !== -1 && headerRowIndex < values.length - 1) {
+          const headers = values[headerRowIndex];
+          console.log('Headers:', headers);
+          
+          // Find column indices
+          const productNameIdx = headers.findIndex((h: string) => h && h.includes("ProductName"));
+          const categoryIdx = headers.findIndex((h: string) => h && h.includes("Category"));
+          const reorderLevelIdx = headers.findIndex((h: string) => h && h.includes("ReorderLevel"));
+          const unitsIdx = headers.findIndex((h: string) => h && h.toLowerCase().includes("units") && !h.includes("Reorder"));
+          const casesIdx = headers.findIndex((h: string) => h && h.toLowerCase().includes("cases") && !h.includes("Reorder"));
+          
+          console.log('Column indices:', { productNameIdx, categoryIdx, reorderLevelIdx, unitsIdx, casesIdx });
+          
           const inventoryItems = [];
           
           for (let i = headerRowIndex + 1; i < values.length; i++) {
             const row = values[i];
-            if (!row[2] || row[2].trim() === "") continue;
             
-            const category = row[12] || "";
+            // Skip empty rows
+            if (!row || row.length === 0 || !row[productNameIdx] || row[productNameIdx].trim() === "") continue;
+            
+            const category = row[categoryIdx] || "";
+            
+            // Filter for only Pasta or Dust categories
             if (category !== "Pasta" && category !== "Dust") continue;
             
+            const unitsOnHand = unitsIdx >= 0 ? (row[unitsIdx] || "0") : "0";
+            const casesOnHand = casesIdx >= 0 ? (row[casesIdx] || "0") : "0";
+            const reorderLevel = reorderLevelIdx >= 0 ? (row[reorderLevelIdx] || "") : "";
+            
+            // Calculate stock value (simplified - you may want to adjust this)
+            const stockValue = "$0.00";
+            
+            // Determine reorder status
+            const units = parseFloat(String(unitsOnHand).replace(/[^0-9.-]/g, '')) || 0;
+            const reorderThreshold = parseFloat(String(reorderLevel).replace(/[^0-9.-]/g, '')) || 0;
+            const needsReorder = units < reorderThreshold ? "Yes" : "No";
+            
             inventoryItems.push({
-              product_name: row[3] || "",
-              reorder_level: row[6] || "",
-              units_on_hand: row[8] || "",
-              cases_on_hand: row[7] || "",
-              stock_value: row[10] || "",
-              reorder: row[11] || "",
+              product_name: row[productNameIdx] || "",
+              reorder_level: reorderLevel,
+              units_on_hand: unitsOnHand,
+              cases_on_hand: casesOnHand,
+              stock_value: stockValue,
+              reorder: needsReorder,
               last_synced: new Date().toISOString()
             });
           }
+          
+          console.log(`Found ${inventoryItems.length} inventory items`);
           
           if (inventoryItems.length > 0) {
             // Delete existing inventory items and insert new ones
             const { error: deleteError } = await supabaseClient
               .from('inventory_items')
               .delete()
-              .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all
+              .neq('id', '00000000-0000-0000-0000-000000000000');
             
             if (deleteError) {
               console.error('Error deleting old inventory:', deleteError);
