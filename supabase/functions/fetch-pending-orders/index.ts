@@ -45,7 +45,7 @@ async function fetchShopifyOrders(): Promise<PendingOrder[]> {
 
   try {
     let allOrders: ShopifyOrder[] = [];
-    let pageUrl = `https://${shopifyStoreUrl}/admin/api/2024-01/orders.json?status=any&fulfillment_status=unfulfilled&limit=250`;
+    let pageUrl = `https://${shopifyStoreUrl}/admin/api/2024-01/orders.json?status=open&fulfillment_status=unfulfilled&limit=250`;
     
     // Fetch all pages of orders
     while (pageUrl) {
