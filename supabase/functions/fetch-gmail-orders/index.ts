@@ -22,12 +22,14 @@ serve(async (req) => {
     // Get OAuth token using service account
     const jwtHeader = btoa(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
     const now = Math.floor(Date.now() / 1000);
+    const delegatedUser = Deno.env.get('GMAIL_DELEGATED_USER');
     const jwtClaim = btoa(JSON.stringify({
       iss: serviceAccount.client_email,
       scope: 'https://www.googleapis.com/auth/gmail.readonly',
       aud: 'https://oauth2.googleapis.com/token',
       exp: now + 3600,
       iat: now,
+      sub: delegatedUser, // Enable domain-wide delegation
     }));
 
     const signatureInput = `${jwtHeader}.${jwtClaim}`;
@@ -81,7 +83,7 @@ serve(async (req) => {
     // Query for emails to orders@lisolinapasta.com OR with label:orders in the last 7 days
     const query = '(to:orders@lisolinapasta.com OR label:orders) newer_than:7d';
     const gmailResponse = await fetch(
-      `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}`,
+      `https://gmail.googleapis.com/gmail/v1/users/${delegatedUser}/messages?q=${encodeURIComponent(query)}`,
       {
         headers: { Authorization: `Bearer ${accessToken}` },
       }
@@ -96,7 +98,7 @@ serve(async (req) => {
       for (const message of gmailData.messages) {
         // Get full message details
         const messageResponse = await fetch(
-          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${message.id}`,
+          `https://gmail.googleapis.com/gmail/v1/users/${delegatedUser}/messages/${message.id}`,
           {
             headers: { Authorization: `Bearer ${accessToken}` },
           }
