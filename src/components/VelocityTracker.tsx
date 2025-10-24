@@ -72,14 +72,16 @@ export const VelocityTracker = () => {
         setVelocityData(velocityResponse.velocityData);
       }
 
-      // Fetch inventory data
-      const { data: inventoryResponse, error: inventoryError } = await supabase.functions.invoke('sync-google-sheets');
+      // Fetch inventory data from database
+      const { data: inventoryResponse, error: inventoryError } = await supabase
+        .from('inventory_items')
+        .select('product_name, units_on_hand, cases_on_hand');
       
-      if (!inventoryError && inventoryResponse?.data) {
-        const inventory: InventoryItem[] = inventoryResponse.data.map((row: any[]) => ({
-          productName: row[0],
-          unitsOnHand: parseFloat(row[6]) || 0,
-          casesOnHand: parseFloat(row[7]) || 0,
+      if (!inventoryError && inventoryResponse) {
+        const inventory: InventoryItem[] = inventoryResponse.map(item => ({
+          productName: item.product_name,
+          unitsOnHand: parseFloat(item.units_on_hand?.replace(/[^0-9.-]/g, '') || '0') || 0,
+          casesOnHand: parseFloat(item.cases_on_hand?.replace(/[^0-9.-]/g, '') || '0') || 0,
         }));
         setInventoryData(inventory);
       }

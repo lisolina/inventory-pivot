@@ -86,6 +86,42 @@ export type Database = {
         }
         Relationships: []
       }
+      inventory_items: {
+        Row: {
+          cases_on_hand: string | null
+          created_at: string
+          id: string
+          last_synced: string
+          product_name: string
+          reorder: string | null
+          reorder_level: string | null
+          stock_value: string | null
+          units_on_hand: string | null
+        }
+        Insert: {
+          cases_on_hand?: string | null
+          created_at?: string
+          id?: string
+          last_synced?: string
+          product_name: string
+          reorder?: string | null
+          reorder_level?: string | null
+          stock_value?: string | null
+          units_on_hand?: string | null
+        }
+        Update: {
+          cases_on_hand?: string | null
+          created_at?: string
+          id?: string
+          last_synced?: string
+          product_name?: string
+          reorder?: string | null
+          reorder_level?: string | null
+          stock_value?: string | null
+          units_on_hand?: string | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string

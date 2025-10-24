@@ -206,12 +206,71 @@ serve(async (req) => {
     const serviceAccountKey: ServiceAccountKey = JSON.parse(serviceAccountKeyJson);
     const accessToken = await getAccessToken(serviceAccountKey);
 
+    // Get Supabase client
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    
+    const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
+    const supabaseClient = createClient(supabaseUrl, supabaseServiceKey);
+
     let result;
     
     if (action === 'read') {
       // If no range provided, let readSheetData determine the first sheet automatically
       result = await readSheetData(accessToken, range);
       console.log('Successfully read sheet data');
+      
+      // Parse and store inventory data in the database
+      if (result?.values && Array.isArray(result.values)) {
+        const values = result.values;
+        const headerRowIndex = values.findIndex((row: string[]) => 
+          row.includes("Site") && row.includes("ProductID")
+        );
+        
+        if (headerRowIndex !== -1 && headerRowIndex < values.length - 1) {
+          const inventoryItems = [];
+          
+          for (let i = headerRowIndex + 1; i < values.length; i++) {
+            const row = values[i];
+            if (!row[2] || row[2].trim() === "") continue;
+            
+            const category = row[12] || "";
+            if (category !== "Pasta" && category !== "Dust") continue;
+            
+            inventoryItems.push({
+              product_name: row[3] || "",
+              reorder_level: row[6] || "",
+              units_on_hand: row[8] || "",
+              cases_on_hand: row[7] || "",
+              stock_value: row[10] || "",
+              reorder: row[11] || "",
+              last_synced: new Date().toISOString()
+            });
+          }
+          
+          if (inventoryItems.length > 0) {
+            // Delete existing inventory items and insert new ones
+            const { error: deleteError } = await supabaseClient
+              .from('inventory_items')
+              .delete()
+              .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all
+            
+            if (deleteError) {
+              console.error('Error deleting old inventory:', deleteError);
+            }
+            
+            const { error: insertError } = await supabaseClient
+              .from('inventory_items')
+              .insert(inventoryItems);
+            
+            if (insertError) {
+              console.error('Error inserting inventory:', insertError);
+            } else {
+              console.log(`Stored ${inventoryItems.length} inventory items in database`);
+            }
+          }
+        }
+      }
     } else if (action === 'write') {
       // For writes, if no range is provided, default to first sheet A:Z
       const targetRange = range || `${await getFirstSheetTitle(accessToken)}!A:Z`;

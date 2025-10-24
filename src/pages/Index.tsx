@@ -59,6 +59,7 @@ const Index = () => {
   const { toast } = useToast();
   const [session, setSession] = useState<Session | null>(null);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [inventoryLastSynced, setInventoryLastSynced] = useState<string | null>(null);
   const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([]);
   const [isLoadingOrders, setIsLoadingOrders] = useState(true);
   const [forwardedEmails, setForwardedEmails] = useState<ForwardedEmailData[]>([]);
@@ -146,8 +147,39 @@ const Index = () => {
     },
   ]);
 
-  // Fetch pending orders and forwarded emails on mount
+  // Fetch inventory, pending orders and forwarded emails on mount
   useEffect(() => {
+    const fetchInventory = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('inventory_items')
+          .select('*')
+          .order('last_synced', { ascending: false })
+          .limit(1000);
+
+        if (error) {
+          console.error('Error fetching inventory:', error);
+          return;
+        }
+
+        if (data && data.length > 0) {
+          const parsedInventory: InventoryItem[] = data.map(item => ({
+            productName: item.product_name,
+            reorderLevel: item.reorder_level || "",
+            unitsOnHand: item.units_on_hand || "",
+            casesOnHand: item.cases_on_hand || "",
+            stockValue: item.stock_value || "",
+            reorder: item.reorder || "",
+          }));
+          
+          setInventory(parsedInventory);
+          setInventoryLastSynced(data[0].last_synced);
+        }
+      } catch (error) {
+        console.error('Error:', error);
+      }
+    };
+
     const fetchPendingOrders = async () => {
       try {
         setIsLoadingOrders(true);
@@ -193,6 +225,7 @@ const Index = () => {
       }
     };
 
+    fetchInventory();
     fetchPendingOrders();
     fetchForwardedEmails();
   }, [toast]);
@@ -271,47 +304,25 @@ const Index = () => {
 
         console.log('Google Sheets data:', data);
         
-        // Parse the inventory data
-        if (data?.data?.values && Array.isArray(data.data.values)) {
-          const values = data.data.values;
-          // Find the header row (row with "Site", "ProductID", etc.)
-          const headerRowIndex = values.findIndex((row: string[]) => 
-            row.includes("Site") && row.includes("ProductID")
-          );
+        // Fetch updated inventory from database
+        const { data: inventoryData, error: inventoryError } = await supabase
+          .from('inventory_items')
+          .select('*')
+          .order('last_synced', { ascending: false })
+          .limit(1000);
+
+        if (!inventoryError && inventoryData && inventoryData.length > 0) {
+          const parsedInventory: InventoryItem[] = inventoryData.map(item => ({
+            productName: item.product_name,
+            reorderLevel: item.reorder_level || "",
+            unitsOnHand: item.units_on_hand || "",
+            casesOnHand: item.cases_on_hand || "",
+            stockValue: item.stock_value || "",
+            reorder: item.reorder || "",
+          }));
           
-          if (headerRowIndex !== -1 && headerRowIndex < values.length - 1) {
-            const parsedInventory: InventoryItem[] = [];
-            
-            // Parse data rows (skip header and empty rows)
-            for (let i = headerRowIndex + 1; i < values.length; i++) {
-              const row = values[i];
-              // Skip empty rows or rows without a product ID
-              if (!row[2] || row[2].trim() === "") continue;
-              
-              const category = row[12] || ""; // Column M (index 12) is category
-              
-              // Filter for only Pasta or Dust categories
-              if (category !== "Pasta" && category !== "Dust") continue;
-              
-              parsedInventory.push({
-                productName: row[3] || "",
-                reorderLevel: row[6] || "",
-                unitsOnHand: row[8] || "",
-                casesOnHand: row[7] || "",
-                stockValue: row[9] || "",
-                reorder: row[10] || "",
-              });
-            }
-            
-            // Sort by units on hand descending
-            parsedInventory.sort((a, b) => {
-              const unitsA = parseInt(a.unitsOnHand.replace(/[^0-9-]/g, '')) || 0;
-              const unitsB = parseInt(b.unitsOnHand.replace(/[^0-9-]/g, '')) || 0;
-              return unitsB - unitsA;
-            });
-            
-            setInventory(parsedInventory);
-          }
+          setInventory(parsedInventory);
+          setInventoryLastSynced(inventoryData[0].last_synced);
         }
         
         toast({
@@ -456,6 +467,7 @@ const Index = () => {
             <InventoryTable 
               items={inventory}
               onRefresh={() => handleSync("Google Sheets")}
+              lastSynced={inventoryLastSynced || undefined}
             />
             
             <VelocityTracker />

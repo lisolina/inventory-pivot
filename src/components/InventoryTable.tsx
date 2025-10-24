@@ -18,9 +18,10 @@ interface InventoryItem {
 interface InventoryTableProps {
   items: InventoryItem[];
   onRefresh?: () => void;
+  lastSynced?: string;
 }
 
-export const InventoryTable = ({ items, onRefresh }: InventoryTableProps) => {
+export const InventoryTable = ({ items, onRefresh, lastSynced }: InventoryTableProps) => {
   const [filter, setFilter] = useState("");
 
   // Filter items based on search input
@@ -61,9 +62,15 @@ export const InventoryTable = ({ items, onRefresh }: InventoryTableProps) => {
                 size="icon"
                 onClick={onRefresh}
                 className="h-8 w-8"
+                title="Sync from Google Sheets"
               >
                 <RefreshCw className="h-4 w-4" />
               </Button>
+            )}
+            {lastSynced && (
+              <p className="text-sm text-muted-foreground">
+                Last updated: {new Date(lastSynced).toLocaleString()}
+              </p>
             )}
           </div>
           <div className="text-right">
