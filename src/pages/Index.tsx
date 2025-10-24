@@ -65,6 +65,7 @@ const Index = () => {
   const [forwardedEmails, setForwardedEmails] = useState<ForwardedEmailData[]>([]);
   const [integrationsOpen, setIntegrationsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [activityLogOpen, setActivityLogOpen] = useState(false);
 
   // Auth check
   useEffect(() => {
@@ -520,7 +521,20 @@ const Index = () => {
               </CollapsibleContent>
             </Collapsible>
 
-            <ActivityLog activities={activities} />
+
+            <Collapsible open={activityLogOpen} onOpenChange={setActivityLogOpen}>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold">Activity Log</h2>
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" size="sm">
+                    <ChevronDown className={`h-4 w-4 transition-transform ${activityLogOpen ? 'rotate-180' : ''}`} />
+                  </Button>
+                </CollapsibleTrigger>
+              </div>
+              <CollapsibleContent>
+                <ActivityLog activities={activities} />
+              </CollapsibleContent>
+            </Collapsible>
           </TabsContent>
 
           <TabsContent value="forwarded" className="space-y-6">
