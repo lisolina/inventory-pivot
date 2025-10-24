@@ -3,6 +3,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Mail, ShoppingBag, Box, Loader2, ChevronDown, RefreshCw } from "lucide-react";
 
 interface PendingOrder {
@@ -22,9 +28,9 @@ interface PendingOrdersProps {
 }
 
 export const PendingOrders = ({ orders, isLoading = false, onRefresh }: PendingOrdersProps) => {
-  const [showAll, setShowAll] = useState(false);
-  const displayedOrders = showAll ? orders : orders.slice(0, 10);
-  const hasMore = orders.length > 10;
+  const [displayLimit, setDisplayLimit] = useState(5);
+  const displayedOrders = orders.slice(0, displayLimit);
+  const hasMore = orders.length > displayLimit;
 
   // Calculate totals per SKU
   const skuSummary = orders.reduce((acc, order) => {
@@ -80,9 +86,33 @@ export const PendingOrders = ({ orders, isLoading = false, onRefresh }: PendingO
               </Button>
             )}
           </div>
-          <Badge variant="secondary" className="text-lg px-3 py-1">
-            {orders.length} Orders
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="text-lg px-3 py-1">
+              {orders.length} Orders
+            </Badge>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  View {displayLimit === orders.length ? 'All' : displayLimit}
+                  <ChevronDown className="ml-2 h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="bg-background">
+                <DropdownMenuItem onClick={() => setDisplayLimit(5)}>
+                  Show 5 orders
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setDisplayLimit(10)}>
+                  Show 10 orders
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setDisplayLimit(25)}>
+                  Show 25 orders
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setDisplayLimit(orders.length)}>
+                  Show all orders
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
@@ -150,20 +180,6 @@ export const PendingOrders = ({ orders, isLoading = false, onRefresh }: PendingO
                       <TableCell>{order.dateOrdered}</TableCell>
                     </TableRow>
                   ))}
-                  {hasMore && !showAll && (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-4">
-                        <Button 
-                          variant="ghost" 
-                          onClick={() => setShowAll(true)}
-                          className="w-full"
-                        >
-                          <ChevronDown className="w-4 h-4 mr-2" />
-                          Show {orders.length - 10} more orders
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  )}
                 </>
               )}
             </TableBody>
