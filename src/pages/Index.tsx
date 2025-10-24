@@ -298,7 +298,7 @@ const Index = () => {
         });
 
         const { data, error } = await supabase.functions.invoke('sync-google-sheets', {
-          body: { action: 'read', range: 'Sheet1!A:Z' }
+          body: { action: 'read' }
         });
 
         if (error) throw error;
