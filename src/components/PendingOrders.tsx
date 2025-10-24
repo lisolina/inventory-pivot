@@ -26,6 +26,17 @@ export const PendingOrders = ({ orders, isLoading = false, onRefresh }: PendingO
   const displayedOrders = showAll ? orders : orders.slice(0, 10);
   const hasMore = orders.length > 10;
 
+  // Calculate totals per SKU
+  const skuSummary = orders.reduce((acc, order) => {
+    const key = order.productName;
+    if (!acc[key]) {
+      acc[key] = { units: 0, cases: 0 };
+    }
+    acc[key].units += order.quantityUnits;
+    acc[key].cases += order.quantityCases;
+    return acc;
+  }, {} as Record<string, { units: number; cases: number }>);
+
   const getSourceIcon = (source: string) => {
     switch (source) {
       case "faire":
@@ -75,6 +86,22 @@ export const PendingOrders = ({ orders, isLoading = false, onRefresh }: PendingO
         </div>
       </CardHeader>
       <CardContent>
+        {Object.keys(skuSummary).length > 0 && (
+          <div className="mb-6 p-4 bg-muted/50 rounded-lg border">
+            <h3 className="text-sm font-semibold mb-3 text-muted-foreground">Outstanding Totals by SKU</h3>
+            <div className="grid gap-2">
+              {Object.entries(skuSummary).map(([productName, totals]) => (
+                <div key={productName} className="flex items-center justify-between text-sm">
+                  <span className="font-medium">{productName}</span>
+                  <div className="flex gap-4 text-muted-foreground">
+                    <span>{totals.units} units</span>
+                    <span>{totals.cases} cases</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
