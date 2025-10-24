@@ -429,18 +429,10 @@ const Index = () => {
           <TabsList>
             <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
             <TabsTrigger value="forwarded">
-              Forwarded Emails
+              Email POs
               {forwardedEmails.filter((e) => e.status === "pending").length > 0 && (
                 <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-warning text-warning-foreground">
                   {forwardedEmails.filter((e) => e.status === "pending").length}
-                </span>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="emails">
-              Email Requests
-              {emailRequests.filter((r) => r.status === "pending").length > 0 && (
-                <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-warning text-warning-foreground">
-                  {emailRequests.filter((r) => r.status === "pending").length}
                 </span>
               )}
             </TabsTrigger>
@@ -523,7 +515,7 @@ const Index = () => {
             <div>
               <div className="flex items-center justify-between mb-4">
                 <div>
-                  <h2 className="text-2xl font-semibold">Forwarded Emails</h2>
+                  <h2 className="text-2xl font-semibold">Email POs</h2>
                   <p className="text-muted-foreground mt-1">
                     Forward emails to your webhook or sync from Gmail orders@ alias
                   </p>
@@ -558,21 +550,6 @@ const Index = () => {
             </div>
           </TabsContent>
 
-          <TabsContent value="emails" className="space-y-4">
-            <div>
-              <h2 className="text-xl font-semibold mb-4">Distributor Email Requests</h2>
-              <div className="space-y-4">
-                {emailRequests.map((request) => (
-                  <EmailRequest
-                    key={request.id}
-                    {...request}
-                    onApprove={handleApprove}
-                    onReject={handleReject}
-                  />
-                ))}
-              </div>
-            </div>
-          </TabsContent>
         </Tabs>
       </main>
     </div>
