@@ -78,8 +78,8 @@ serve(async (req) => {
     }
 
     // Fetch emails from Gmail API
-    // Query for emails to orders@ in the last 24 hours
-    const query = 'to:orders@ newer_than:1d';
+    // Query for emails to orders@lisolinapasta.com OR with label:orders in the last 7 days
+    const query = '(to:orders@lisolinapasta.com OR label:orders) newer_than:7d';
     const gmailResponse = await fetch(
       `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}`,
       {
