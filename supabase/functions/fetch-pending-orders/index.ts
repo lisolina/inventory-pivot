@@ -120,7 +120,7 @@ async function fetchShopifyOrders(): Promise<PendingOrder[]> {
         }
         
         const units = item.quantity;
-        const cases = units / 12; // Calculate cases as units/12
+        const cases = Math.ceil(units / 12); // Round up to nearest case
         
         pendingOrders.push({
           id: `shopify-${order.id}-${item.product_id}`,
@@ -160,7 +160,7 @@ async function fetchEmailOrders(): Promise<PendingOrder[]> {
 
     const emailOrders: PendingOrder[] = (data || []).map(order => {
       const units = order.quantity || 0;
-      const cases = units / 12; // Calculate cases as units/12
+      const cases = Math.ceil(units / 12); // Round up to nearest case
       
       // Format date as M/D/YYYY
       const orderDate = new Date(order.date_received);
