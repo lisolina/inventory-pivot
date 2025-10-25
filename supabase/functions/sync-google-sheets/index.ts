@@ -216,8 +216,9 @@ serve(async (req) => {
     let result;
     
     if (action === 'read') {
-      // If no range provided, let readSheetData determine the first sheet automatically
-      result = await readSheetData(accessToken, range);
+      // Read from the "Inventory" sheet specifically
+      const inventoryRange = range || 'Inventory!A:Z';
+      result = await readSheetData(accessToken, inventoryRange);
       console.log('Successfully read sheet data');
       
       // Parse and store inventory data in the database
