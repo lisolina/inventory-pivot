@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 
 interface InventoryItem {
   productName: string;
@@ -23,11 +23,50 @@ interface InventoryTableProps {
 
 export const InventoryTable = ({ items, onRefresh, lastSynced }: InventoryTableProps) => {
   const [filter, setFilter] = useState("");
+  const [sortColumn, setSortColumn] = useState<keyof InventoryItem | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  const handleSort = (column: keyof InventoryItem) => {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
+
+  const getSortIcon = (column: keyof InventoryItem) => {
+    if (sortColumn !== column) {
+      return <ArrowUpDown className="ml-2 h-4 w-4" />;
+    }
+    return sortDirection === 'asc' 
+      ? <ArrowUp className="ml-2 h-4 w-4" /> 
+      : <ArrowDown className="ml-2 h-4 w-4" />;
+  };
 
   // Filter items based on search input
-  const filteredItems = items.filter(item => 
+  let filteredItems = items.filter(item => 
     item.productName.toLowerCase().includes(filter.toLowerCase())
   );
+
+  // Sort items if a column is selected
+  if (sortColumn) {
+    filteredItems = [...filteredItems].sort((a, b) => {
+      const aVal = a[sortColumn];
+      const bVal = b[sortColumn];
+      
+      // Handle numeric columns (remove $ and , for comparison)
+      if (sortColumn === 'stockValue' || sortColumn === 'unitsOnHand' || sortColumn === 'casesOnHand' || sortColumn === 'reorderLevel') {
+        const aNum = parseFloat(String(aVal).replace(/[^0-9.-]/g, '')) || 0;
+        const bNum = parseFloat(String(bVal).replace(/[^0-9.-]/g, '')) || 0;
+        return sortDirection === 'asc' ? aNum - bNum : bNum - aNum;
+      }
+      
+      // Handle text columns
+      const comparison = String(aVal).localeCompare(String(bVal));
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+  }
 
   // Calculate total stock value from filtered items
   const totalStockValue = filteredItems.reduce((sum, item) => {
@@ -92,12 +131,66 @@ export const InventoryTable = ({ items, onRefresh, lastSynced }: InventoryTableP
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Product Name</TableHead>
-                <TableHead className="text-right">Reorder Level</TableHead>
-                <TableHead className="text-right">Units on Hand</TableHead>
-                <TableHead className="text-right">Cases on Hand</TableHead>
-                <TableHead className="text-right">Stock Value</TableHead>
-                <TableHead className="text-center">Reorder</TableHead>
+                <TableHead>
+                  <Button 
+                    variant="ghost" 
+                    onClick={() => handleSort('productName')}
+                    className="hover:bg-transparent p-0 h-auto font-semibold"
+                  >
+                    Product Name
+                    {getSortIcon('productName')}
+                  </Button>
+                </TableHead>
+                <TableHead className="text-right">
+                  <Button 
+                    variant="ghost" 
+                    onClick={() => handleSort('reorderLevel')}
+                    className="hover:bg-transparent p-0 h-auto font-semibold ml-auto flex"
+                  >
+                    Reorder Level
+                    {getSortIcon('reorderLevel')}
+                  </Button>
+                </TableHead>
+                <TableHead className="text-right">
+                  <Button 
+                    variant="ghost" 
+                    onClick={() => handleSort('unitsOnHand')}
+                    className="hover:bg-transparent p-0 h-auto font-semibold ml-auto flex"
+                  >
+                    Units on Hand
+                    {getSortIcon('unitsOnHand')}
+                  </Button>
+                </TableHead>
+                <TableHead className="text-right">
+                  <Button 
+                    variant="ghost" 
+                    onClick={() => handleSort('casesOnHand')}
+                    className="hover:bg-transparent p-0 h-auto font-semibold ml-auto flex"
+                  >
+                    Cases on Hand
+                    {getSortIcon('casesOnHand')}
+                  </Button>
+                </TableHead>
+                <TableHead className="text-right">
+                  <Button 
+                    variant="ghost" 
+                    onClick={() => handleSort('stockValue')}
+                    className="hover:bg-transparent p-0 h-auto font-semibold ml-auto flex"
+                  >
+                    Stock Value
+                    {getSortIcon('stockValue')}
+                  </Button>
+                </TableHead>
+                <TableHead className="text-center">
+                  <Button 
+                    variant="ghost" 
+                    onClick={() => handleSort('reorder')}
+                    className="hover:bg-transparent p-0 h-auto font-semibold mx-auto flex"
+                  >
+                    Reorder
+                    {getSortIcon('reorder')}
+                  </Button>
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
