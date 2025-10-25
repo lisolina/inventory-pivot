@@ -15,6 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import { Session } from "@supabase/supabase-js";
+import AIChatWidget from "@/components/AIChatWidget";
 
 interface EmailRequestData {
   id: string;
@@ -576,6 +577,7 @@ const Index = () => {
             </div>
           </TabsContent>
 
+          <AIChatWidget />
         </Tabs>
       </main>
     </div>

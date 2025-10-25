@@ -8,3 +8,15 @@ verify_jwt = false
 
 [functions.fetch-gmail-orders]
 verify_jwt = false
+
+[functions.fetch-pending-orders]
+verify_jwt = false
+
+[functions.fetch-sales-velocity]
+verify_jwt = false
+
+[functions.sync-google-sheets]
+verify_jwt = false
+
+[functions.chat]
+verify_jwt = false

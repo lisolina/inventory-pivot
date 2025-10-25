@@ -105,7 +105,7 @@ export const InventoryTable = ({ items, onRefresh, lastSynced }: InventoryTableP
                 <TableRow 
                   key={`${item.productName}-${index}`}
                   className="cursor-pointer hover:bg-muted/50"
-                  onClick={() => window.open('https://docs.google.com/spreadsheets/d/1hpuGxJQ1CdD89X0UuKKfK3z_CzhRMVqLPm0oZlp5p6k/edit?gid=0#gid=0', '_blank')}
+                  onClick={() => window.open('https://docs.google.com/spreadsheets/d/1OgqxbZYGaMVWEHJ_up-_F3fBzhaNJ8I-7jT9vhvUFwI/edit?gid=0#gid=0', '_blank')}
                 >
                   <TableCell className="font-medium">{item.productName}</TableCell>
                   <TableCell className="text-right">{item.reorderLevel}</TableCell>
