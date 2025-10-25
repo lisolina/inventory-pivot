@@ -237,13 +237,18 @@ serve(async (req) => {
           console.log('Headers:', headers);
           
           // Find column indices
-          const productNameIdx = headers.findIndex((h: string) => h && h.includes("ProductName"));
-          const categoryIdx = headers.findIndex((h: string) => h && h.includes("Category"));
-          const reorderLevelIdx = headers.findIndex((h: string) => h && h.includes("ReorderLevel"));
-          const unitsIdx = headers.findIndex((h: string) => h && h.toLowerCase().includes("units") && !h.includes("Reorder"));
-          const casesIdx = headers.findIndex((h: string) => h && h.toLowerCase().includes("cases") && !h.includes("Reorder"));
+          const productNameIdx = headers.findIndex((h: string) => h && h.trim().toLowerCase().includes("productname"));
+          const categoryIdx = headers.findIndex((h: string) => h && h.trim().toLowerCase().includes("category"));
+          const reorderLevelIdx = headers.findIndex((h: string) => h && h.trim().toLowerCase().replace(/\s+/g, '').includes("reorderlevel"));
+          const unitsIdx = headers.findIndex((h: string) => h && h.trim().toLowerCase().includes("units") && h.trim().toLowerCase().includes("hand"));
+          const casesIdx = headers.findIndex((h: string) => h && h.trim().toLowerCase().includes("cases") && h.trim().toLowerCase().includes("hand"));
+          const stockValueIdx = headers.findIndex((h: string) => h && h.trim().toLowerCase().replace(/\s+/g, '').includes("stockvalue"));
+          const reorderIdx = headers.findIndex((h: string) => {
+            const trimmed = h?.trim().toLowerCase();
+            return trimmed === "reorder" || (trimmed && trimmed.includes("reorder") && !trimmed.includes("level") && !trimmed.includes("date"));
+          });
           
-          console.log('Column indices:', { productNameIdx, categoryIdx, reorderLevelIdx, unitsIdx, casesIdx });
+          console.log('Column indices:', { productNameIdx, categoryIdx, reorderLevelIdx, unitsIdx, casesIdx, stockValueIdx, reorderIdx });
           
           const inventoryItems = [];
           
@@ -261,14 +266,8 @@ serve(async (req) => {
             const unitsOnHand = unitsIdx >= 0 ? (row[unitsIdx] || "0") : "0";
             const casesOnHand = casesIdx >= 0 ? (row[casesIdx] || "0") : "0";
             const reorderLevel = reorderLevelIdx >= 0 ? (row[reorderLevelIdx] || "") : "";
-            
-            // Calculate stock value (simplified - you may want to adjust this)
-            const stockValue = "$0.00";
-            
-            // Determine reorder status
-            const units = parseFloat(String(unitsOnHand).replace(/[^0-9.-]/g, '')) || 0;
-            const reorderThreshold = parseFloat(String(reorderLevel).replace(/[^0-9.-]/g, '')) || 0;
-            const needsReorder = units < reorderThreshold ? "Yes" : "No";
+            const stockValue = stockValueIdx >= 0 ? (row[stockValueIdx] || "$0.00") : "$0.00";
+            const reorderStatus = reorderIdx >= 0 ? (row[reorderIdx] || "No") : "No";
             
             inventoryItems.push({
               product_name: row[productNameIdx] || "",
@@ -276,7 +275,7 @@ serve(async (req) => {
               units_on_hand: unitsOnHand,
               cases_on_hand: casesOnHand,
               stock_value: stockValue,
-              reorder: needsReorder,
+              reorder: reorderStatus,
               last_synced: new Date().toISOString()
             });
           }
