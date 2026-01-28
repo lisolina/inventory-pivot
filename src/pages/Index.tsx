@@ -7,6 +7,8 @@ import { ActivityLog } from "@/components/ActivityLog";
 import { InventoryTable } from "@/components/InventoryTable";
 import { PendingOrders } from "@/components/PendingOrders";
 import { VelocityTracker } from "@/components/VelocityTracker";
+import { TasksTile, useTaskActions } from "@/components/TasksTile";
+import { POUploader } from "@/components/POUploader";
 import { FileSpreadsheet, ShoppingBag, Mail, Box, ChevronDown, LogOut } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -452,19 +454,22 @@ const Index = () => {
           </TabsList>
 
           <TabsContent value="dashboard" className="space-y-6">
-            <PendingOrders 
-              orders={pendingOrders} 
-              isLoading={isLoadingOrders}
-              onRefresh={async () => {
-                setIsLoadingOrders(true);
-                const { data, error } = await supabase.functions.invoke('fetch-pending-orders');
-                if (!error && data?.orders) {
-                  setPendingOrders(data.orders);
-                  toast({ title: "Success", description: "Pending orders refreshed" });
-                }
-                setIsLoadingOrders(false);
-              }}
-            />
+            <div className="grid lg:grid-cols-2 gap-6">
+              <TasksTile />
+              <PendingOrders 
+                orders={pendingOrders} 
+                isLoading={isLoadingOrders}
+                onRefresh={async () => {
+                  setIsLoadingOrders(true);
+                  const { data, error } = await supabase.functions.invoke('fetch-pending-orders');
+                  if (!error && data?.orders) {
+                    setPendingOrders(data.orders);
+                    toast({ title: "Success", description: "Pending orders refreshed" });
+                  }
+                  setIsLoadingOrders(false);
+                }}
+              />
+            </div>
             
             <InventoryTable 
               items={inventory}
@@ -539,41 +544,60 @@ const Index = () => {
           </TabsContent>
 
           <TabsContent value="forwarded" className="space-y-6">
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h2 className="text-2xl font-semibold">Email POs</h2>
-                  <p className="text-muted-foreground mt-1">
-                    Forward emails to your webhook or sync from Gmail orders@ alias
-                  </p>
+            <div className="grid lg:grid-cols-2 gap-6">
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h2 className="text-2xl font-semibold">Email POs</h2>
+                    <p className="text-muted-foreground mt-1">
+                      Forward emails to your webhook or sync from Gmail orders@ alias
+                    </p>
+                  </div>
+                  <Button onClick={handleFetchGmailOrders} disabled={isLoading}>
+                    {isLoading ? "Fetching..." : "Fetch from Gmail"}
+                  </Button>
                 </div>
-                <Button onClick={handleFetchGmailOrders} disabled={isLoading}>
-                  {isLoading ? "Fetching..." : "Fetch from Gmail"}
-                </Button>
+                {forwardedEmails.length === 0 ? (
+                  <Card>
+                    <CardContent className="py-8 text-center text-muted-foreground">
+                      No forwarded emails yet. Set up your email forwarding to get started.
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="space-y-4">
+                    {forwardedEmails.map((email) => (
+                      <ForwardedEmail
+                        key={email.id}
+                        id={email.id}
+                        from={email.email_from}
+                        subject={email.email_subject}
+                        body={email.email_body || ''}
+                        receivedAt={email.received_at}
+                        status={email.status}
+                        onConvertToOrder={handleConvertToOrder}
+                        onMarkAsTask={handleMarkAsTask}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
-              {forwardedEmails.length === 0 ? (
-                <Card>
-                  <CardContent className="py-8 text-center text-muted-foreground">
-                    No forwarded emails yet. Set up your email forwarding to get started.
-                  </CardContent>
-                </Card>
-              ) : (
-                <div className="space-y-4">
-                  {forwardedEmails.map((email) => (
-                    <ForwardedEmail
-                      key={email.id}
-                      id={email.id}
-                      from={email.email_from}
-                      subject={email.email_subject}
-                      body={email.email_body || ''}
-                      receivedAt={email.received_at}
-                      status={email.status}
-                      onConvertToOrder={handleConvertToOrder}
-                      onMarkAsTask={handleMarkAsTask}
-                    />
-                  ))}
-                </div>
-              )}
+              
+              <POUploader 
+                onAddTask={async (title, description) => {
+                  try {
+                    await supabase.from('tasks').insert({
+                      title,
+                      description,
+                      source: 'po_upload',
+                      status: 'pending',
+                      priority: 'medium'
+                    });
+                    toast({ title: "Task Added", description: title });
+                  } catch (error) {
+                    toast({ title: "Error", description: "Failed to add task", variant: "destructive" });
+                  }
+                }}
+              />
             </div>
           </TabsContent>
 
