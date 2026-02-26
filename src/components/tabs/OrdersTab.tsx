@@ -16,6 +16,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { POUploader } from "@/components/POUploader";
 import { ForwardedEmail } from "@/components/ForwardedEmail";
+import { NLOrderInput } from "@/components/NLOrderInput";
+import { ChannelTiles } from "@/components/ChannelTiles";
 
 interface Order {
   id: string;
@@ -29,6 +31,13 @@ interface Order {
   carrier: string | null;
   invoice_status: string | null;
   notes: string | null;
+}
+
+interface OrderItem {
+  id: string;
+  order_id: string;
+  product_name: string | null;
+  quantity: number;
 }
 
 type VelocityRange = "week" | "month" | "quarter" | "year";
@@ -49,6 +58,7 @@ const velocityConfig = {
 export const OrdersTab = () => {
   const { toast } = useToast();
   const [orders, setOrders] = useState<Order[]>([]);
+  const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [addOpen, setAddOpen] = useState(false);
   const [forwardedEmails, setForwardedEmails] = useState<any[]>([]);
   const [velocityRange, setVelocityRange] = useState<VelocityRange>("month");
@@ -57,8 +67,12 @@ export const OrdersTab = () => {
   });
 
   const fetchOrders = async () => {
-    const { data } = await supabase.from("orders").select("*").order("order_date", { ascending: false });
-    if (data) setOrders(data);
+    const [ordersRes, itemsRes] = await Promise.all([
+      supabase.from("orders").select("*").order("order_date", { ascending: false }),
+      supabase.from("order_items").select("*"),
+    ]);
+    if (ordersRes.data) setOrders(ordersRes.data);
+    if (itemsRes.data) setOrderItems(itemsRes.data);
   };
 
   const fetchEmails = async () => {
@@ -71,7 +85,6 @@ export const OrdersTab = () => {
   const openOrders = orders.filter((o) => ["new", "processing", "shipped"].includes(o.status));
   const fulfilledOrders = orders.filter((o) => ["delivered", "invoiced", "paid"].includes(o.status));
 
-  // Velocity chart data from fulfilled orders
   const velocityData = useMemo(() => {
     const now = new Date();
     const start = new Date();
@@ -119,9 +132,24 @@ export const OrdersTab = () => {
   };
 
   const handleConvertToOrder = async (id: string) => {
-    await supabase.from("forwarded_emails").update({ status: "converted_to_order" }).eq("id", id);
-    fetchEmails();
-    toast({ title: "Converted to Order" });
+    // Find the email
+    const email = forwardedEmails.find(e => e.id === id);
+    if (!email) return;
+
+    // Use AI to parse the email body and create an order
+    try {
+      const { data, error } = await supabase.functions.invoke("parse-email-order", {
+        body: { text: `${email.email_subject}\n\n${email.email_body || ""}`, emailFrom: email.email_from, autoCreate: true },
+      });
+      if (error) throw error;
+
+      await supabase.from("forwarded_emails").update({ status: "converted_to_order" }).eq("id", id);
+      fetchEmails();
+      fetchOrders();
+      toast({ title: "Converted to Order", description: data?.order ? `Created order for ${data.order.customer_name}` : "Email marked as converted" });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
   };
 
   const handleMarkAsTask = async (id: string, notes: string) => {
@@ -140,14 +168,9 @@ export const OrdersTab = () => {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Customer</TableHead>
-                  <TableHead>PO #</TableHead>
-                  <TableHead className="text-right">Value</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Invoice</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <TableHead>Date</TableHead><TableHead>Source</TableHead><TableHead>Customer</TableHead>
+                  <TableHead>PO #</TableHead><TableHead className="text-right">Value</TableHead>
+                  <TableHead>Status</TableHead><TableHead>Invoice</TableHead><TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -235,8 +258,10 @@ export const OrdersTab = () => {
           </Dialog>
         </div>
 
-        <TabsContent value="open" className="mt-4">
-          <h3 className="text-lg font-semibold mb-3">Open / Pending Orders</h3>
+        <TabsContent value="open" className="mt-4 space-y-4">
+          <NLOrderInput onOrderCreated={fetchOrders} />
+          <ChannelTiles orders={openOrders} orderItems={orderItems} />
+          <h3 className="text-lg font-semibold">All Open Orders</h3>
           {renderOrderTable(openOrders, "No open orders right now.")}
         </TabsContent>
 
@@ -287,7 +312,7 @@ export const OrdersTab = () => {
         </TabsContent>
 
         <TabsContent value="upload-po" className="mt-4">
-          <POUploader onAddTask={async (title, description) => {
+          <POUploader onOrderCreated={fetchOrders} onAddTask={async (title, description) => {
             try {
               await supabase.from("tasks").insert({ title, description, source: "po_upload", status: "pending", priority: "medium" });
               toast({ title: "Task Added", description: title });

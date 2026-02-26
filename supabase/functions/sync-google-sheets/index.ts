@@ -258,10 +258,7 @@ serve(async (req) => {
             // Skip empty rows
             if (!row || row.length === 0 || !row[productNameIdx] || row[productNameIdx].trim() === "") continue;
             
-            const category = row[categoryIdx] || "";
-            
-            // Filter for only Pasta or Dust categories
-            if (category !== "Pasta" && category !== "Dust") continue;
+            // No category filter — pull all rows
             
             const unitsOnHand = unitsIdx >= 0 ? (row[unitsIdx] || "0") : "0";
             const casesOnHand = casesIdx >= 0 ? (row[casesIdx] || "0") : "0";

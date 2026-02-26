@@ -10,6 +10,7 @@ import { DashboardTab } from "@/components/tabs/DashboardTab";
 import { InventoryTab } from "@/components/tabs/InventoryTab";
 import { OrdersTab } from "@/components/tabs/OrdersTab";
 import { MoneyTab } from "@/components/tabs/MoneyTab";
+import { SalesCRMTab } from "@/components/tabs/SalesCRMTab";
 
 const Index = () => {
   const navigate = useNavigate();
@@ -60,12 +61,14 @@ const Index = () => {
             <TabsTrigger value="inventory">Inventory</TabsTrigger>
             <TabsTrigger value="orders">Orders</TabsTrigger>
             <TabsTrigger value="money">Money</TabsTrigger>
+            <TabsTrigger value="sales-crm">Sales CRM</TabsTrigger>
           </TabsList>
 
           <TabsContent value="dashboard"><DashboardTab /></TabsContent>
           <TabsContent value="inventory"><InventoryTab /></TabsContent>
           <TabsContent value="orders"><OrdersTab /></TabsContent>
           <TabsContent value="money"><MoneyTab /></TabsContent>
+          <TabsContent value="sales-crm"><SalesCRMTab /></TabsContent>
         </Tabs>
         <AIChatWidget />
       </main>

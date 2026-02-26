@@ -11,6 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, DollarSign, TrendingUp, TrendingDown, Link2, Loader2, CheckCircle2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { CSVUploader } from "@/components/CSVUploader";
+import { InvoiceDropZone } from "@/components/InvoiceDropZone";
 
 type TimeRange = "week" | "month" | "quarter" | "year";
 
@@ -59,32 +61,18 @@ export const MoneyTab = () => {
 
   const checkQbStatus = async () => {
     try {
-      const { data, error } = await supabase.functions.invoke("quickbooks-api", {
-        body: { endpoint: "status" },
-      });
-      if (error || data?.connected === false) {
-        setQbStatus("disconnected");
-      } else if (data?.connected) {
-        setQbStatus("connected");
-      } else {
-        setQbStatus("disconnected");
-      }
-    } catch {
-      setQbStatus("disconnected");
-    }
+      const { data, error } = await supabase.functions.invoke("quickbooks-api", { body: { endpoint: "status" } });
+      setQbStatus((!error && data?.connected) ? "connected" : "disconnected");
+    } catch { setQbStatus("disconnected"); }
   };
 
   const handleConnectQB = async () => {
     setQbConnecting(true);
     try {
       const redirectUri = `${window.location.origin}/quickbooks/callback`;
-      const { data, error } = await supabase.functions.invoke("quickbooks-auth", {
-        body: { action: "authorize", redirectUri },
-      });
+      const { data, error } = await supabase.functions.invoke("quickbooks-auth", { body: { action: "authorize", redirectUri } });
       if (error) throw error;
-      if (data?.url) {
-        window.location.href = data.url;
-      }
+      if (data?.url) window.location.href = data.url;
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
       setQbConnecting(false);
@@ -194,9 +182,7 @@ export const MoneyTab = () => {
         <CardContent className="pt-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-primary/10">
-                <Link2 className="h-5 w-5 text-primary" />
-              </div>
+              <div className="p-2 rounded-lg bg-primary/10"><Link2 className="h-5 w-5 text-primary" /></div>
               <div>
                 <h3 className="font-semibold">QuickBooks Online</h3>
                 <p className="text-sm text-muted-foreground">
@@ -205,9 +191,7 @@ export const MoneyTab = () => {
               </div>
             </div>
             {qbStatus === "connected" ? (
-              <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                <CheckCircle2 className="h-3 w-3 mr-1" /> Connected
-              </Badge>
+              <Badge className="bg-success/20 text-success"><CheckCircle2 className="h-3 w-3 mr-1" /> Connected</Badge>
             ) : (
               <Button onClick={handleConnectQB} disabled={qbConnecting} size="sm">
                 {qbConnecting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Link2 className="h-4 w-4 mr-1" />}
@@ -218,42 +202,43 @@ export const MoneyTab = () => {
         </CardContent>
       </Card>
 
-      {/* Cash Position */}
-      <Card className="border-accent/30">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <DollarSign className="h-5 w-5 text-accent" /> Cash Position
-          </CardTitle>
-          <Dialog open={addCashOpen} onOpenChange={setAddCashOpen}>
-            <DialogTrigger asChild><Button size="sm">Update Cash</Button></DialogTrigger>
-            <DialogContent>
-              <DialogHeader><DialogTitle>Update Cash</DialogTitle></DialogHeader>
-              <div className="space-y-4">
-                <div>
-                  <Label>Type</Label>
-                  <Select value={newCash.type} onValueChange={(v) => setNewCash({ ...newCash, type: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="balance_update">Set Balance</SelectItem>
-                      <SelectItem value="in">Cash In</SelectItem>
-                      <SelectItem value="out">Cash Out</SelectItem>
-                    </SelectContent>
-                  </Select>
+      {/* Cash Position + CSV Upload */}
+      <div className="grid lg:grid-cols-2 gap-6">
+        <Card className="border-accent/30">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2"><DollarSign className="h-5 w-5 text-accent" /> Cash Position</CardTitle>
+            <Dialog open={addCashOpen} onOpenChange={setAddCashOpen}>
+              <DialogTrigger asChild><Button size="sm">Update Cash</Button></DialogTrigger>
+              <DialogContent>
+                <DialogHeader><DialogTitle>Update Cash</DialogTitle></DialogHeader>
+                <div className="space-y-4">
+                  <div>
+                    <Label>Type</Label>
+                    <Select value={newCash.type} onValueChange={(v) => setNewCash({ ...newCash, type: v })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="balance_update">Set Balance</SelectItem>
+                        <SelectItem value="in">Cash In</SelectItem>
+                        <SelectItem value="out">Cash Out</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div><Label>Amount ($)</Label><Input type="number" value={newCash.amount} onChange={(e) => setNewCash({ ...newCash, amount: e.target.value })} /></div>
+                  <div><Label>Description</Label><Input value={newCash.description} onChange={(e) => setNewCash({ ...newCash, description: e.target.value })} /></div>
+                  <Button onClick={handleUpdateCash} className="w-full">Save</Button>
                 </div>
-                <div><Label>Amount ($)</Label><Input type="number" value={newCash.amount} onChange={(e) => setNewCash({ ...newCash, amount: e.target.value })} /></div>
-                <div><Label>Description</Label><Input value={newCash.description} onChange={(e) => setNewCash({ ...newCash, description: e.target.value })} /></div>
-                <Button onClick={handleUpdateCash} className="w-full">Save</Button>
-              </div>
-            </DialogContent>
-          </Dialog>
-        </CardHeader>
-        <CardContent>
-          <div className="text-4xl font-bold">{cashBalance !== null ? `$${cashBalance.toLocaleString()}` : "— Not set yet"}</div>
-          <p className="text-sm text-muted-foreground mt-1">
-            {cashEntries.length > 0 ? `Last updated: ${new Date(cashEntries[0].date).toLocaleDateString()}` : "Click 'Update Cash' to set your starting balance"}
-          </p>
-        </CardContent>
-      </Card>
+              </DialogContent>
+            </Dialog>
+          </CardHeader>
+          <CardContent>
+            <div className="text-4xl font-bold">{cashBalance !== null ? `$${cashBalance.toLocaleString()}` : "— Not set yet"}</div>
+            <p className="text-sm text-muted-foreground mt-1">
+              {cashEntries.length > 0 ? `Last updated: ${new Date(cashEntries[0].date).toLocaleDateString()}` : "Click 'Update Cash' to set your starting balance"}
+            </p>
+          </CardContent>
+        </Card>
+        <CSVUploader onUploadComplete={fetchAll} />
+      </div>
 
       <Tabs defaultValue="receivables">
         <TabsList>
@@ -280,6 +265,8 @@ export const MoneyTab = () => {
               </DialogContent>
             </Dialog>
           </div>
+          {/* Invoice Drop Zone */}
+          <InvoiceDropZone onInvoiceCreated={fetchAll} />
           <Card>
             <CardContent className="pt-6">
               {invoices.length === 0 ? (
@@ -317,12 +304,9 @@ export const MoneyTab = () => {
 
         {/* Expenses */}
         <TabsContent value="expenses" className="space-y-4">
-          {/* Upcoming Expenses */}
           {upcomingExpenses.length > 0 && (
             <Card className="border-warning/30">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Upcoming Expenses</CardTitle>
-              </CardHeader>
+              <CardHeader className="pb-2"><CardTitle className="text-base">Upcoming Expenses</CardTitle></CardHeader>
               <CardContent>
                 <Table>
                   <TableHeader>
@@ -346,7 +330,6 @@ export const MoneyTab = () => {
             </Card>
           )}
 
-          {/* Historical Expenses */}
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold">Expense History</h3>
             <div className="flex items-center gap-2">
