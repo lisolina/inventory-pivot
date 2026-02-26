@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, DollarSign, TrendingUp, TrendingDown } from "lucide-react";
+import { Plus, DollarSign, TrendingUp, TrendingDown, Link2, Loader2, CheckCircle2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
@@ -38,6 +38,8 @@ export const MoneyTab = () => {
   const [newCash, setNewCash] = useState({ amount: "", description: "", type: "balance_update" });
   const [newInvoice, setNewInvoice] = useState({ customer: "", amount: "", due_date: "", invoice_number: "" });
   const [newExpense, setNewExpense] = useState({ description: "", amount: "", category: "other", type: "one-time", status: "upcoming" });
+  const [qbStatus, setQbStatus] = useState<"unknown" | "connected" | "disconnected">("unknown");
+  const [qbConnecting, setQbConnecting] = useState(false);
 
   const fetchAll = async () => {
     const [invRes, expRes, cashRes] = await Promise.all([
@@ -53,7 +55,41 @@ export const MoneyTab = () => {
     }
   };
 
-  useEffect(() => { fetchAll(); }, []);
+  useEffect(() => { fetchAll(); checkQbStatus(); }, []);
+
+  const checkQbStatus = async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke("quickbooks-api", {
+        body: { endpoint: "status" },
+      });
+      if (error || data?.connected === false) {
+        setQbStatus("disconnected");
+      } else if (data?.connected) {
+        setQbStatus("connected");
+      } else {
+        setQbStatus("disconnected");
+      }
+    } catch {
+      setQbStatus("disconnected");
+    }
+  };
+
+  const handleConnectQB = async () => {
+    setQbConnecting(true);
+    try {
+      const redirectUri = `${window.location.origin}/quickbooks/callback`;
+      const { data, error } = await supabase.functions.invoke("quickbooks-auth", {
+        body: { action: "authorize", redirectUri },
+      });
+      if (error) throw error;
+      if (data?.url) {
+        window.location.href = data.url;
+      }
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+      setQbConnecting(false);
+    }
+  };
 
   const getStartDate = (range: TimeRange) => {
     const d = new Date();
@@ -153,6 +189,35 @@ export const MoneyTab = () => {
 
   return (
     <div className="space-y-6">
+      {/* QuickBooks Connection */}
+      <Card className="border-primary/20">
+        <CardContent className="pt-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-primary/10">
+                <Link2 className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <h3 className="font-semibold">QuickBooks Online</h3>
+                <p className="text-sm text-muted-foreground">
+                  {qbStatus === "connected" ? "Connected — syncing bank balance, invoices & expenses" : "Connect to pull live financial data"}
+                </p>
+              </div>
+            </div>
+            {qbStatus === "connected" ? (
+              <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                <CheckCircle2 className="h-3 w-3 mr-1" /> Connected
+              </Badge>
+            ) : (
+              <Button onClick={handleConnectQB} disabled={qbConnecting} size="sm">
+                {qbConnecting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Link2 className="h-4 w-4 mr-1" />}
+                Connect QuickBooks
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Cash Position */}
       <Card className="border-accent/30">
         <CardHeader className="flex flex-row items-center justify-between">

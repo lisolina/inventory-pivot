@@ -23,3 +23,9 @@ verify_jwt = false
 
 [functions.parse-po-document]
 verify_jwt = false
+
+[functions.quickbooks-auth]
+verify_jwt = false
+
+[functions.quickbooks-api]
+verify_jwt = false
