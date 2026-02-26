@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DollarSign, Package, ShoppingCart, TrendingUp, AlertTriangle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { TasksTile } from "@/components/TasksTile";
+import { CashFlowChart } from "@/components/CashFlowChart";
 
 interface MetricCardProps {
   title: string;
@@ -24,80 +26,71 @@ const MetricCard = ({ title, value, icon: Icon, subtitle }: MetricCardProps) => 
   </Card>
 );
 
+const FINISHED_PRODUCTS = [
+  "SpaghettiDust Aglio",
+  "Radiatore",
+  "Casarecce",
+  "Fusilli",
+  "Rigatoni",
+];
+
+interface InventorySnapshot {
+  product_name: string;
+  units_on_hand: string;
+  cases_on_hand: string;
+}
+
 export const DashboardTab = () => {
   const [metrics, setMetrics] = useState({
-    cashOnHand: "$0",
-    inventoryValue: "$0",
+    cashOnHand: "—",
+    inventoryValue: "—",
     openOrders: "0",
-    weekRevenue: "$0",
+    weekRevenue: "—",
   });
   const [alerts, setAlerts] = useState<string[]>([]);
+  const [inventorySnapshot, setInventorySnapshot] = useState<InventorySnapshot[]>([]);
 
   useEffect(() => {
     const fetchMetrics = async () => {
-      // Fetch open orders count
-      const { count: orderCount } = await supabase
-        .from("orders")
-        .select("*", { count: "exact", head: true })
-        .in("status", ["new", "processing"]);
+      const [orderCountRes, cashRes, invRes, revenueRes, dueInvRes] = await Promise.all([
+        supabase.from("orders").select("*", { count: "exact", head: true }).in("status", ["new", "processing"]),
+        supabase.from("cash_entries").select("balance_after").order("date", { ascending: false }).limit(1),
+        supabase.from("inventory_items").select("product_name, units_on_hand, cases_on_hand, stock_value"),
+        supabase.from("orders").select("total_value").gte("order_date", new Date(Date.now() - 7 * 86400000).toISOString()),
+        supabase.from("invoices").select("customer, amount, due_date").eq("status", "pending").lte("due_date", new Date(Date.now() + 7 * 86400000).toISOString()),
+      ]);
 
-      // Fetch latest cash entry
-      const { data: cashData } = await supabase
-        .from("cash_entries")
-        .select("balance_after")
-        .order("date", { ascending: false })
-        .limit(1);
-
-      // Fetch inventory value from inventory_items (existing Google Sheets data)
-      const { data: invData } = await supabase
-        .from("inventory_items")
-        .select("stock_value");
+      // Inventory snapshot - filter to finished products
+      const finishedItems = (invRes.data || []).filter((item) =>
+        FINISHED_PRODUCTS.some((p) => item.product_name.toLowerCase().includes(p.toLowerCase()))
+      );
+      setInventorySnapshot(finishedItems.map((i) => ({
+        product_name: i.product_name,
+        units_on_hand: i.units_on_hand || "0",
+        cases_on_hand: i.cases_on_hand || "0",
+      })));
 
       let totalInvValue = 0;
-      invData?.forEach((item) => {
+      finishedItems.forEach((item) => {
         const val = parseFloat(item.stock_value?.replace(/[^0-9.-]/g, "") || "0");
         if (!isNaN(val)) totalInvValue += val;
       });
 
-      // Fetch this week's revenue from orders
-      const weekAgo = new Date();
-      weekAgo.setDate(weekAgo.getDate() - 7);
-      const { data: revenueData } = await supabase
-        .from("orders")
-        .select("total_value")
-        .gte("order_date", weekAgo.toISOString());
-
       let weekRevenue = 0;
-      revenueData?.forEach((o) => {
-        weekRevenue += Number(o.total_value || 0);
-      });
-
-      // Fetch alerts - invoices due within 7 days
-      const nextWeek = new Date();
-      nextWeek.setDate(nextWeek.getDate() + 7);
-      const { data: dueInvoices } = await supabase
-        .from("invoices")
-        .select("customer, amount, due_date")
-        .eq("status", "pending")
-        .lte("due_date", nextWeek.toISOString());
+      revenueRes.data?.forEach((o) => { weekRevenue += Number(o.total_value || 0); });
 
       const alertList: string[] = [];
-      dueInvoices?.forEach((inv) => {
-        const dueDate = new Date(inv.due_date);
-        const daysUntil = Math.ceil((dueDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-        if (daysUntil < 0) {
-          alertList.push(`⚠️ ${inv.customer} invoice ($${inv.amount}) is ${Math.abs(daysUntil)} days overdue`);
-        } else if (daysUntil <= 2) {
-          alertList.push(`🔴 ${inv.customer} invoice ($${inv.amount}) due in ${daysUntil} day(s)`);
-        } else {
-          alertList.push(`🟡 ${inv.customer} invoice ($${inv.amount}) due in ${daysUntil} days`);
-        }
+      dueInvRes.data?.forEach((inv) => {
+        const days = Math.ceil((new Date(inv.due_date).getTime() - Date.now()) / 86400000);
+        if (days < 0) alertList.push(`⚠️ ${inv.customer} invoice ($${inv.amount}) is ${Math.abs(days)} days overdue`);
+        else if (days <= 2) alertList.push(`🔴 ${inv.customer} invoice ($${inv.amount}) due in ${days} day(s)`);
+        else alertList.push(`🟡 ${inv.customer} invoice ($${inv.amount}) due in ${days} days`);
       });
 
       setMetrics({
-        cashOnHand: cashData?.[0]?.balance_after ? `$${Number(cashData[0].balance_after).toLocaleString()}` : "—",
+        cashOnHand: cashRes.data?.[0]?.balance_after ? `$${Number(cashRes.data[0].balance_after).toLocaleString()}` : "—",
         inventoryValue: totalInvValue > 0 ? `$${totalInvValue.toLocaleString()}` : "—",
-        openOrders: String(orderCount || 0),
+        openOrders: String(orderCountRes.count || 0),
         weekRevenue: weekRevenue > 0 ? `$${weekRevenue.toLocaleString()}` : "—",
       });
       setAlerts(alertList);
@@ -110,19 +103,53 @@ export const DashboardTab = () => {
     <div className="space-y-6">
       {/* Key Metrics */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard title="Cash on Hand" value={metrics.cashOnHand} icon={DollarSign} />
-        <MetricCard title="Inventory Value" value={metrics.inventoryValue} icon={Package} />
+        <MetricCard title="Cash on Hand" value={metrics.cashOnHand} icon={DollarSign} subtitle="From latest cash entry" />
+        <MetricCard title="Inventory Value" value={metrics.inventoryValue} icon={Package} subtitle="Finished products only" />
         <MetricCard title="Open Orders" value={metrics.openOrders} icon={ShoppingCart} />
-        <MetricCard title="This Week's Revenue" value={metrics.weekRevenue} icon={TrendingUp} />
+        <MetricCard title="This Week's Revenue" value={metrics.weekRevenue} icon={TrendingUp} subtitle="Revenue booked (not cash in)" />
       </div>
+
+      {/* Inventory Snapshot */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Package className="h-4 w-4 text-accent" />
+            Inventory Snapshot
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {inventorySnapshot.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No inventory data. Sync from Google Sheets in the Inventory tab.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Product</TableHead>
+                  <TableHead className="text-right">Units</TableHead>
+                  <TableHead className="text-right">Cases</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {inventorySnapshot.map((item, i) => (
+                  <TableRow key={i}>
+                    <TableCell className="font-medium text-sm">{item.product_name}</TableCell>
+                    <TableCell className="text-right text-sm">{item.units_on_hand}</TableCell>
+                    <TableCell className="text-right text-sm">{item.cases_on_hand}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Tasks + Alerts */}
       <div className="grid lg:grid-cols-2 gap-6">
         <TasksTile />
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-warning" />
+            <CardTitle className="flex items-center gap-2 text-base">
+              <AlertTriangle className="h-4 w-4 text-warning" />
               Alerts & Notifications
             </CardTitle>
           </CardHeader>
@@ -139,6 +166,9 @@ export const DashboardTab = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Cash Flow Chart */}
+      <CashFlowChart />
     </div>
   );
 };
