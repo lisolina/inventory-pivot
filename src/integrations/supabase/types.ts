@@ -47,6 +47,83 @@ export type Database = {
         }
         Relationships: []
       }
+      crm_accounts: {
+        Row: {
+          contact_email: string | null
+          contact_name: string | null
+          created_at: string
+          followup_cadence_days: number
+          id: string
+          last_contact_date: string | null
+          name: string
+          next_followup_date: string | null
+          notes: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          contact_email?: string | null
+          contact_name?: string | null
+          created_at?: string
+          followup_cadence_days?: number
+          id?: string
+          last_contact_date?: string | null
+          name: string
+          next_followup_date?: string | null
+          notes?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          contact_email?: string | null
+          contact_name?: string | null
+          created_at?: string
+          followup_cadence_days?: number
+          id?: string
+          last_contact_date?: string | null
+          name?: string
+          next_followup_date?: string | null
+          notes?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      crm_activities: {
+        Row: {
+          account_id: string
+          created_at: string
+          date: string
+          description: string
+          id: string
+          type: string
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          date?: string
+          description: string
+          id?: string
+          type?: string
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          date?: string
+          description?: string
+          id?: string
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "crm_activities_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "crm_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       email_orders: {
         Row: {
           created_at: string

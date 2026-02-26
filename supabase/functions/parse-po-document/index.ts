@@ -12,51 +12,57 @@ serve(async (req) => {
   }
 
   try {
-    const { filePath, fileName, fileContent } = await req.json();
+    const { fileName, fileContent, fileBase64, mimeType, autoCreateOrder } = await req.json();
     
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
-    }
+    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
-    // Use AI to parse the PO content and extract actions
-    const systemPrompt = `You are an expert at parsing Purchase Orders (POs) for a food/beverage distribution company called L'Isolina. 
-    
-Your task is to analyze uploaded PO documents and extract actionable tasks.
+    const systemPrompt = `You are an expert at parsing Purchase Orders (POs) for a food/beverage distribution company called L'Isolina / SpaghettiDust.
 
-Common customers include:
-- Rainforest Distribution
-- Misfits Market  
-- Various retail stores and distributors
+Your task is to analyze uploaded PO documents and extract structured data.
 
-Common products include various pasta products, sauces, and specialty Italian food items like "Spaghetti Dust".
+Common customers: Rainforest Distribution, World's Best Cheeses, Hudson Harvest, Misfits Market, various retail stores.
 
-For each PO, extract:
+Common products include pasta products (Radiatore/Radiatoria/Radiatory, Fusilli, Rigatoni, Casarecce, Spaghetti Dust/SpaghettiDust Aglio). Match product names even if spelled differently or with underscores/codes.
+
+Extract:
 1. Customer/recipient name
-2. Products and quantities ordered
-3. Any special instructions or notes
-4. Suggested action items
+2. PO number
+3. PO date
+4. Expected delivery date (if present)
+5. Products and quantities ordered (match to: Radiatore, Fusilli, Rigatoni, Casarecce, SpaghettiDust Aglio)
+6. Any special instructions
 
-Format your response as JSON with this structure:
+Return JSON:
 {
   "customer": "Customer Name",
   "poNumber": "PO-12345" or null,
+  "poDate": "YYYY-MM-DD" or null,
+  "deliveryDate": "YYYY-MM-DD" or null,
   "items": [
-    {"product": "Product Name", "quantity": 10, "unit": "cases"}
+    {"product": "Matched Product Name", "quantity": 10, "unit": "cases", "originalDescription": "what appeared on PO"}
   ],
-  "actions": [
-    "Prepare pallet for Customer Name",
-    "Ship Product X to Customer Name",
-    "Check inventory for Product Y"
-  ],
-  "notes": "Any special instructions or observations"
-}
-
-If the document doesn't appear to be a valid PO, return:
-{
-  "error": "Could not parse as PO",
-  "suggestion": "Brief explanation of what the document appears to be"
+  "notes": "Any special instructions"
 }`;
+
+    // Build messages - use multimodal for PDFs
+    const messages: any[] = [{ role: "system", content: systemPrompt }];
+    
+    if (fileBase64 && mimeType) {
+      // Multimodal: send PDF/image as base64
+      messages.push({
+        role: "user",
+        content: [
+          { type: "text", text: `Parse this Purchase Order document (${fileName}). Extract customer, PO number, dates, and line items.` },
+          { type: "image_url", image_url: { url: `data:${mimeType};base64,${fileBase64}` } }
+        ]
+      });
+    } else {
+      messages.push({
+        role: "user",
+        content: `Parse this Purchase Order document.\n\nFile: ${fileName}\n\nContent:\n${fileContent}`
+      });
+    }
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -66,34 +72,19 @@ If the document doesn't appear to be a valid PO, return:
       },
       body: JSON.stringify({
         model: "google/gemini-3-flash-preview",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { 
-            role: "user", 
-            content: `Please parse this Purchase Order document.
-
-File name: ${fileName}
-
-Document content:
-${fileContent}
-
-Extract the customer, items, and generate actionable tasks.` 
-          },
-        ],
+        messages,
       }),
     });
 
     if (!response.ok) {
       if (response.status === 429) {
         return new Response(JSON.stringify({ error: "Rate limits exceeded, please try again later." }), {
-          status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "AI service requires credits. Please add funds." }), {
-          status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        return new Response(JSON.stringify({ error: "AI service requires credits." }), {
+          status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       const errorText = await response.text();
@@ -103,30 +94,47 @@ Extract the customer, items, and generate actionable tasks.`
 
     const aiResponse = await response.json();
     const content = aiResponse.choices?.[0]?.message?.content;
-    
-    if (!content) {
-      throw new Error("No response from AI");
-    }
+    if (!content) throw new Error("No response from AI");
 
-    // Try to parse the JSON from the AI response
     let parsedResult;
     try {
-      // Extract JSON from the response (it might be wrapped in markdown code blocks)
       const jsonMatch = content.match(/```json\n?([\s\S]*?)\n?```/) || content.match(/\{[\s\S]*\}/);
       const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : content;
       parsedResult = JSON.parse(jsonStr);
-    } catch (parseError) {
-      console.error("Failed to parse AI response as JSON:", content);
-      parsedResult = {
-        rawResponse: content,
-        actions: ["Review document manually - AI could not structure the response"],
-      };
+    } catch {
+      console.error("Failed to parse AI response:", content);
+      parsedResult = { rawResponse: content, error: "Could not parse structured data" };
+    }
+
+    // Auto-create order if requested and parsing succeeded
+    let createdOrder = null;
+    if (autoCreateOrder && parsedResult.customer && parsedResult.items?.length > 0) {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const sb = createClient(supabaseUrl, supabaseKey);
+
+      const { data: order, error: orderErr } = await sb.from("orders").insert({
+        customer_name: parsedResult.customer,
+        source: "distributor",
+        po_number: parsedResult.poNumber || null,
+        delivery_date: parsedResult.deliveryDate || null,
+        notes: parsedResult.notes || `Parsed from ${fileName}`,
+        status: "new",
+      }).select().single();
+
+      if (order && !orderErr) {
+        createdOrder = order;
+        const items = parsedResult.items.map((item: any) => ({
+          order_id: order.id,
+          product_name: item.product,
+          quantity: item.quantity,
+        }));
+        await sb.from("order_items").insert(items);
+      }
     }
 
     return new Response(JSON.stringify({ 
-      success: true, 
-      fileName,
-      result: parsedResult 
+      success: true, fileName, result: parsedResult, createdOrder
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -136,8 +144,7 @@ Extract the customer, items, and generate actionable tasks.`
     return new Response(JSON.stringify({ 
       error: error instanceof Error ? error.message : "Unknown error" 
     }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });
