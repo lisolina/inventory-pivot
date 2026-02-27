@@ -2,11 +2,12 @@ import { useState, useEffect } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { SortableTableHead, useSort, sortData } from "@/components/SortableTableHead";
 
 interface SheetItem {
   product_name: string;
@@ -26,6 +27,9 @@ export const InventoryTab = () => {
   const [lastSynced, setLastSynced] = useState<string | undefined>();
   const [syncing, setSyncing] = useState(false);
   const [shipping, setShipping] = useState<any[]>([]);
+  const finishedSort = useSort();
+  const packagingSort = useSort();
+  const shippingSort = useSort();
 
   const fetchAll = async () => {
     const [sheetsRes, shipRes] = await Promise.all([
@@ -56,7 +60,6 @@ export const InventoryTab = () => {
     }
   };
 
-  // Filter by category column from the spreadsheet
   const finishedItems = allItems.filter((item) => {
     const cat = (item.category || "").toLowerCase().trim();
     return cat === "pasta" || cat === "dust";
@@ -79,32 +82,59 @@ export const InventoryTab = () => {
     return <Badge className="bg-success text-success-foreground">OK</Badge>;
   };
 
-  const renderSheetTable = (items: SheetItem[], showCases = true) => (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Product</TableHead>
-          <TableHead className="text-right">Units</TableHead>
-          {showCases && <TableHead className="text-right">Cases</TableHead>}
-          <TableHead className="text-right">Stock Value</TableHead>
-          <TableHead>Reorder Level</TableHead>
-          <TableHead>Status</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {items.map((item, i) => (
-          <TableRow key={i}>
-            <TableCell className="font-medium">{item.product_name}</TableCell>
-            <TableCell className="text-right">{item.units_on_hand || "—"}</TableCell>
-            {showCases && <TableCell className="text-right">{item.cases_on_hand || "—"}</TableCell>}
-            <TableCell className="text-right">{item.stock_value || "—"}</TableCell>
-            <TableCell>{item.reorder_level || "—"}</TableCell>
-            <TableCell>{getReorderBadge(item.reorder)}</TableCell>
+  const sheetGetVal = (item: SheetItem, key: string) => {
+    switch (key) {
+      case "product_name": return item.product_name;
+      case "units_on_hand": return item.units_on_hand;
+      case "cases_on_hand": return item.cases_on_hand;
+      case "stock_value": return item.stock_value;
+      case "reorder_level": return item.reorder_level;
+      case "reorder": return item.reorder;
+      default: return "";
+    }
+  };
+
+  const renderSheetTable = (items: SheetItem[], sortHook: ReturnType<typeof useSort>, showCases = true) => {
+    const sorted = sortData(items, sortHook.sort, sheetGetVal);
+    return (
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <SortableTableHead label="Product" sortKey="product_name" currentSort={sortHook.sort} onSort={sortHook.handleSort} />
+            <SortableTableHead label="Units" sortKey="units_on_hand" currentSort={sortHook.sort} onSort={sortHook.handleSort} className="text-right" />
+            {showCases && <SortableTableHead label="Cases" sortKey="cases_on_hand" currentSort={sortHook.sort} onSort={sortHook.handleSort} className="text-right" />}
+            <SortableTableHead label="Stock Value" sortKey="stock_value" currentSort={sortHook.sort} onSort={sortHook.handleSort} className="text-right" />
+            <SortableTableHead label="Reorder Level" sortKey="reorder_level" currentSort={sortHook.sort} onSort={sortHook.handleSort} />
+            <SortableTableHead label="Status" sortKey="reorder" currentSort={sortHook.sort} onSort={sortHook.handleSort} />
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
-  );
+        </TableHeader>
+        <TableBody>
+          {sorted.map((item, i) => (
+            <TableRow key={i}>
+              <TableCell className="font-medium">{item.product_name}</TableCell>
+              <TableCell className="text-right">{item.units_on_hand || "—"}</TableCell>
+              {showCases && <TableCell className="text-right">{item.cases_on_hand || "—"}</TableCell>}
+              <TableCell className="text-right">{item.stock_value || "—"}</TableCell>
+              <TableCell>{item.reorder_level || "—"}</TableCell>
+              <TableCell>{getReorderBadge(item.reorder)}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    );
+  };
+
+  const shipGetVal = (item: any, key: string) => {
+    switch (key) {
+      case "item_name": return item.item_name;
+      case "location": return item.location;
+      case "quantity": return item.quantity;
+      case "reorder_point": return item.reorder_point;
+      default: return "";
+    }
+  };
+
+  const sortedShipping = sortData(shipping, shippingSort.sort, shipGetVal);
 
   return (
     <div className="space-y-6">
@@ -146,7 +176,7 @@ export const InventoryTab = () => {
                   No finished products found. Click "Sync Sheets" to pull from Google Sheets.
                 </p>
               ) : (
-                renderSheetTable(finishedItems)
+                renderSheetTable(finishedItems, finishedSort)
               )}
             </CardContent>
           </Card>
@@ -163,7 +193,7 @@ export const InventoryTab = () => {
                   No packaging items found. Sync from Google Sheets — items with category "Packaging" will appear here.
                 </p>
               ) : (
-                renderSheetTable(packagingItems, false)
+                renderSheetTable(packagingItems, packagingSort, false)
               )}
             </CardContent>
           </Card>
@@ -183,14 +213,14 @@ export const InventoryTab = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Item</TableHead>
-                      <TableHead>Location</TableHead>
-                      <TableHead className="text-right">Qty</TableHead>
-                      <TableHead className="text-right">Reorder Point</TableHead>
+                      <SortableTableHead label="Item" sortKey="item_name" currentSort={shippingSort.sort} onSort={shippingSort.handleSort} />
+                      <SortableTableHead label="Location" sortKey="location" currentSort={shippingSort.sort} onSort={shippingSort.handleSort} />
+                      <SortableTableHead label="Qty" sortKey="quantity" currentSort={shippingSort.sort} onSort={shippingSort.handleSort} className="text-right" />
+                      <SortableTableHead label="Reorder Point" sortKey="reorder_point" currentSort={shippingSort.sort} onSort={shippingSort.handleSort} className="text-right" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {shipping.map((item: any) => (
+                    {sortedShipping.map((item: any) => (
                       <TableRow key={item.id}>
                         <TableCell className="font-medium">{item.item_name}</TableCell>
                         <TableCell className="capitalize">{item.location}</TableCell>

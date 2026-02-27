@@ -1,20 +1,26 @@
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { DollarSign, Package, ShoppingCart, TrendingUp, AlertTriangle } from "lucide-react";
+import { DollarSign, Package, ShoppingCart, TrendingUp, AlertTriangle, Check, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { TasksTile } from "@/components/TasksTile";
 import { CashFlowChart } from "@/components/CashFlowChart";
+
+interface DashboardTabProps {
+  onNavigate?: (tab: string) => void;
+}
 
 interface MetricCardProps {
   title: string;
   value: string;
   icon: React.ElementType;
   subtitle?: string;
+  onClick?: () => void;
 }
 
-const MetricCard = ({ title, value, icon: Icon, subtitle }: MetricCardProps) => (
-  <Card>
+const MetricCard = ({ title, value, icon: Icon, subtitle, onClick }: MetricCardProps) => (
+  <Card className={onClick ? "cursor-pointer hover:border-accent/50 transition-colors" : ""} onClick={onClick}>
     <CardHeader className="flex flex-row items-center justify-between pb-2">
       <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
       <Icon className="h-4 w-4 text-accent" />
@@ -32,15 +38,27 @@ interface InventorySnapshot {
   cases_on_hand: string;
 }
 
-export const DashboardTab = () => {
+interface AlertItem {
+  id: string;
+  text: string;
+}
+
+export const DashboardTab = ({ onNavigate }: DashboardTabProps) => {
   const [metrics, setMetrics] = useState({
     cashOnHand: "—",
     inventoryValue: "—",
     openOrders: "0",
     weekRevenue: "—",
   });
-  const [alerts, setAlerts] = useState<string[]>([]);
+  const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [dismissedAlerts, setDismissedAlerts] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("dismissedAlerts") || "[]"); } catch { return []; }
+  });
   const [inventorySnapshot, setInventorySnapshot] = useState<InventorySnapshot[]>([]);
+
+  useEffect(() => {
+    localStorage.setItem("dismissedAlerts", JSON.stringify(dismissedAlerts));
+  }, [dismissedAlerts]);
 
   useEffect(() => {
     const fetchMetrics = async () => {
@@ -49,10 +67,9 @@ export const DashboardTab = () => {
         supabase.from("cash_entries").select("date, type, amount, balance_after").order("date", { ascending: false }).limit(500),
         supabase.from("inventory_items").select("product_name, units_on_hand, cases_on_hand, stock_value, category"),
         supabase.from("orders").select("total_value").gte("order_date", new Date(Date.now() - 7 * 86400000).toISOString()),
-        supabase.from("invoices").select("customer, amount, due_date").eq("status", "pending").lte("due_date", new Date(Date.now() + 7 * 86400000).toISOString()),
+        supabase.from("invoices").select("id, customer, amount, due_date").eq("status", "pending").lte("due_date", new Date(Date.now() + 7 * 86400000).toISOString()),
       ]);
 
-      // Inventory snapshot - filter by category (pasta/dust = finished products)
       const finishedItems = (invRes.data || []).filter((item: any) => {
         const cat = ((item as any).category || "").toLowerCase().trim();
         return cat === "pasta" || cat === "dust";
@@ -72,25 +89,32 @@ export const DashboardTab = () => {
       let weekRevenue = 0;
       revenueRes.data?.forEach((o) => { weekRevenue += Number(o.total_value || 0); });
 
-      const alertList: string[] = [];
-      dueInvRes.data?.forEach((inv) => {
+      const alertList: AlertItem[] = [];
+      dueInvRes.data?.forEach((inv: any) => {
         const days = Math.ceil((new Date(inv.due_date).getTime() - Date.now()) / 86400000);
-        if (days < 0) alertList.push(`⚠️ ${inv.customer} invoice ($${inv.amount}) is ${Math.abs(days)} days overdue`);
-        else if (days <= 2) alertList.push(`🔴 ${inv.customer} invoice ($${inv.amount}) due in ${days} day(s)`);
-        else alertList.push(`🟡 ${inv.customer} invoice ($${inv.amount}) due in ${days} days`);
+        let text = "";
+        if (days < 0) text = `⚠️ ${inv.customer} invoice ($${inv.amount}) is ${Math.abs(days)} days overdue`;
+        else if (days <= 2) text = `🔴 ${inv.customer} invoice ($${inv.amount}) due in ${days} day(s)`;
+        else text = `🟡 ${inv.customer} invoice ($${inv.amount}) due in ${days} days`;
+        alertList.push({ id: inv.id, text });
       });
 
-      // Cash on hand: find the most recent entry with balance_after, or compute from entries
+      // Cash on hand with pending charges
       let cashOnHand: number | null = null;
       const cashData = cashRes.data || [];
-      // First try: most recent entry with balance_after
       const withBalance = cashData.find((e: any) => e.balance_after !== null);
       if (withBalance) {
         cashOnHand = Number((withBalance as any).balance_after);
+        // Apply pending charges after the last reported balance date
+        const balanceDate = new Date((withBalance as any).date).getTime();
+        cashData.forEach((e: any) => {
+          if (new Date(e.date).getTime() > balanceDate && e.balance_after === null) {
+            if (e.type === "in") cashOnHand! += Number(e.amount);
+            else if (e.type === "out") cashOnHand! -= Number(e.amount);
+          }
+        });
       } else if (cashData.length > 0) {
-        // Fallback: sum all in/out transactions
         let running = 0;
-        // Process oldest first
         const sorted = [...cashData].reverse();
         sorted.forEach((e: any) => {
           if (e.type === "in") running += Number(e.amount);
@@ -100,7 +124,7 @@ export const DashboardTab = () => {
       }
 
       setMetrics({
-        cashOnHand: cashOnHand !== null ? `$${cashOnHand.toLocaleString()}` : "—",
+        cashOnHand: cashOnHand !== null ? `$${cashOnHand.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—",
         inventoryValue: totalInvValue > 0 ? `$${totalInvValue.toLocaleString()}` : "—",
         openOrders: String(orderCountRes.count || 0),
         weekRevenue: weekRevenue > 0 ? `$${weekRevenue.toLocaleString()}` : "—",
@@ -111,17 +135,23 @@ export const DashboardTab = () => {
     fetchMetrics();
   }, []);
 
+  const visibleAlerts = alerts.filter((a) => !dismissedAlerts.includes(a.id));
+
+  const dismissAlert = (id: string) => setDismissedAlerts((prev) => [...prev, id]);
+  const deleteAlert = (id: string) => {
+    setAlerts((prev) => prev.filter((a) => a.id !== id));
+    dismissAlert(id);
+  };
+
   return (
     <div className="space-y-6">
-      {/* Key Metrics */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard title="Cash on Hand" value={metrics.cashOnHand} icon={DollarSign} subtitle="From latest cash entry" />
+        <MetricCard title="Cash on Hand" value={metrics.cashOnHand} icon={DollarSign} subtitle="Includes pending charges" onClick={() => onNavigate?.("money")} />
         <MetricCard title="Inventory Value" value={metrics.inventoryValue} icon={Package} subtitle="Finished products only" />
-        <MetricCard title="Open Orders" value={metrics.openOrders} icon={ShoppingCart} />
-        <MetricCard title="This Week's Revenue" value={metrics.weekRevenue} icon={TrendingUp} subtitle="Revenue booked (not cash in)" />
+        <MetricCard title="Open Orders" value={metrics.openOrders} icon={ShoppingCart} onClick={() => onNavigate?.("orders")} />
+        <MetricCard title="This Week's Revenue" value={metrics.weekRevenue} icon={TrendingUp} subtitle="Revenue booked (not cash in)" onClick={() => onNavigate?.("money")} />
       </div>
 
-      {/* Inventory Snapshot */}
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-2">
@@ -155,7 +185,6 @@ export const DashboardTab = () => {
         </CardContent>
       </Card>
 
-      {/* Tasks + Alerts */}
       <div className="grid lg:grid-cols-2 gap-6">
         <TasksTile />
         <Card>
@@ -166,12 +195,22 @@ export const DashboardTab = () => {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {alerts.length === 0 ? (
+            {visibleAlerts.length === 0 ? (
               <p className="text-muted-foreground text-sm">No alerts right now. You're all caught up! 🎉</p>
             ) : (
               <ul className="space-y-2">
-                {alerts.map((alert, i) => (
-                  <li key={i} className="text-sm border-b border-border pb-2 last:border-0">{alert}</li>
+                {visibleAlerts.map((alert) => (
+                  <li key={alert.id} className="flex items-center justify-between text-sm border-b border-border pb-2 last:border-0 group">
+                    <span>{alert.text}</span>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => dismissAlert(alert.id)}>
+                        <Check className="h-3 w-3" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" onClick={() => deleteAlert(alert.id)}>
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </li>
                 ))}
               </ul>
             )}
@@ -179,7 +218,6 @@ export const DashboardTab = () => {
         </Card>
       </div>
 
-      {/* Cash Flow Chart */}
       <CashFlowChart />
     </div>
   );

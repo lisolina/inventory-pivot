@@ -15,6 +15,7 @@ import { SalesCRMTab } from "@/components/tabs/SalesCRMTab";
 const Index = () => {
   const navigate = useNavigate();
   const [session, setSession] = useState<Session | null>(null);
+  const [activeTab, setActiveTab] = useState("dashboard");
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -55,7 +56,7 @@ const Index = () => {
       </header>
 
       <main className="container mx-auto px-6 py-6">
-        <Tabs defaultValue="dashboard" className="space-y-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className="bg-muted">
             <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
             <TabsTrigger value="inventory">Inventory</TabsTrigger>
@@ -64,7 +65,7 @@ const Index = () => {
             <TabsTrigger value="sales-crm">Sales CRM</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="dashboard"><DashboardTab /></TabsContent>
+          <TabsContent value="dashboard"><DashboardTab onNavigate={setActiveTab} /></TabsContent>
           <TabsContent value="inventory"><InventoryTab /></TabsContent>
           <TabsContent value="orders"><OrdersTab /></TabsContent>
           <TabsContent value="money"><MoneyTab /></TabsContent>

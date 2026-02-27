@@ -6,18 +6,19 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid } from "recharts";
-import { Plus, ExternalLink } from "lucide-react";
+import { Plus, ExternalLink, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { POUploader } from "@/components/POUploader";
 import { ForwardedEmail } from "@/components/ForwardedEmail";
 import { NLOrderInput } from "@/components/NLOrderInput";
 import { ChannelTiles } from "@/components/ChannelTiles";
+import { SortableTableHead, useSort, sortData } from "@/components/SortableTableHead";
 
 interface Order {
   id: string;
@@ -31,6 +32,7 @@ interface Order {
   carrier: string | null;
   invoice_status: string | null;
   notes: string | null;
+  file_url?: string | null;
 }
 
 interface OrderItem {
@@ -62,16 +64,19 @@ export const OrdersTab = () => {
   const [addOpen, setAddOpen] = useState(false);
   const [forwardedEmails, setForwardedEmails] = useState<any[]>([]);
   const [velocityRange, setVelocityRange] = useState<VelocityRange>("month");
+  const [emailView, setEmailView] = useState<"pending" | "history">("pending");
   const [newOrder, setNewOrder] = useState({
     source: "distributor", customer_name: "", po_number: "", total_value: "", notes: "",
   });
+  const openSort = useSort();
+  const fulfilledSort = useSort();
 
   const fetchOrders = async () => {
     const [ordersRes, itemsRes] = await Promise.all([
       supabase.from("orders").select("*").order("order_date", { ascending: false }),
       supabase.from("order_items").select("*"),
     ]);
-    if (ordersRes.data) setOrders(ordersRes.data);
+    if (ordersRes.data) setOrders(ordersRes.data as any);
     if (itemsRes.data) setOrderItems(itemsRes.data);
   };
 
@@ -120,6 +125,18 @@ export const OrdersTab = () => {
     }
   };
 
+  const handleDeleteOrder = async (id: string) => {
+    try {
+      await supabase.from("order_items").delete().eq("order_id", id);
+      const { error } = await supabase.from("orders").delete().eq("id", id);
+      if (error) throw error;
+      toast({ title: "Order Deleted" });
+      fetchOrders();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
   const handleUpdateStatus = async (id: string, status: string) => {
     const updates: any = { status };
     if (status === "paid") updates.payment_date = new Date().toISOString();
@@ -132,17 +149,13 @@ export const OrdersTab = () => {
   };
 
   const handleConvertToOrder = async (id: string) => {
-    // Find the email
     const email = forwardedEmails.find(e => e.id === id);
     if (!email) return;
-
-    // Use AI to parse the email body and create an order
     try {
       const { data, error } = await supabase.functions.invoke("parse-email-order", {
         body: { text: `${email.email_subject}\n\n${email.email_body || ""}`, emailFrom: email.email_from, autoCreate: true },
       });
       if (error) throw error;
-
       await supabase.from("forwarded_emails").update({ status: "converted_to_order" }).eq("id", id);
       fetchEmails();
       fetchOrders();
@@ -158,61 +171,102 @@ export const OrdersTab = () => {
     toast({ title: "Marked as Task" });
   };
 
-  const renderOrderTable = (items: Order[], emptyMsg: string) => (
-    <Card>
-      <CardContent className="pt-6">
-        {items.length === 0 ? (
-          <p className="text-center text-muted-foreground py-6 text-sm">{emptyMsg}</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead><TableHead>Source</TableHead><TableHead>Customer</TableHead>
-                  <TableHead>PO #</TableHead><TableHead className="text-right">Value</TableHead>
-                  <TableHead>Status</TableHead><TableHead>Invoice</TableHead><TableHead>Doc</TableHead><TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {items.map((order) => (
-                  <TableRow key={order.id}>
-                    <TableCell className="whitespace-nowrap text-sm">{new Date(order.order_date).toLocaleDateString()}</TableCell>
-                    <TableCell className="capitalize text-sm">{order.source}</TableCell>
-                    <TableCell className="font-medium text-sm">{order.customer_name}</TableCell>
-                    <TableCell className="text-sm">{order.po_number || "—"}</TableCell>
-                    <TableCell className="text-right text-sm">{order.total_value ? `$${Number(order.total_value).toLocaleString()}` : "—"}</TableCell>
-                    <TableCell><Badge className={statusColors[order.status] || ""}>{order.status}</Badge></TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="text-xs">
-                        {order.invoice_status === "invoiced" ? "Invoiced" : order.status === "paid" ? "Paid" : "Not Invoiced"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {(order as any).file_url ? (
-                        <a href={(order as any).file_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary/80">
-                          <ExternalLink className="h-4 w-4" />
-                        </a>
-                      ) : "—"}
-                    </TableCell>
-                    <TableCell>
-                      <Select value={order.status} onValueChange={(v) => handleUpdateStatus(order.id, v)}>
-                        <SelectTrigger className="h-7 w-[110px] text-xs"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {["new", "processing", "shipped", "delivered", "invoiced", "paid"].map((s) => (
-                            <SelectItem key={s} value={s} className="capitalize text-xs">{s}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </TableCell>
+  const handleDeleteEmail = async (id: string) => {
+    try {
+      const { error } = await supabase.from("forwarded_emails").delete().eq("id", id);
+      if (error) throw error;
+      fetchEmails();
+      toast({ title: "Email Deleted" });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const orderGetVal = (item: Order, key: string) => {
+    switch (key) {
+      case "order_date": return item.order_date;
+      case "source": return item.source;
+      case "customer_name": return item.customer_name;
+      case "po_number": return item.po_number;
+      case "total_value": return item.total_value;
+      case "status": return item.status;
+      case "invoice_status": return item.invoice_status;
+      default: return "";
+    }
+  };
+
+  const renderOrderTable = (items: Order[], sortHook: ReturnType<typeof useSort>, emptyMsg: string) => {
+    const sorted = sortData(items, sortHook.sort, orderGetVal);
+    return (
+      <Card>
+        <CardContent className="pt-6">
+          {items.length === 0 ? (
+            <p className="text-center text-muted-foreground py-6 text-sm">{emptyMsg}</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <SortableTableHead label="Date" sortKey="order_date" currentSort={sortHook.sort} onSort={sortHook.handleSort} />
+                    <SortableTableHead label="Source" sortKey="source" currentSort={sortHook.sort} onSort={sortHook.handleSort} />
+                    <SortableTableHead label="Customer" sortKey="customer_name" currentSort={sortHook.sort} onSort={sortHook.handleSort} />
+                    <SortableTableHead label="PO #" sortKey="po_number" currentSort={sortHook.sort} onSort={sortHook.handleSort} />
+                    <SortableTableHead label="Value" sortKey="total_value" currentSort={sortHook.sort} onSort={sortHook.handleSort} className="text-right" />
+                    <SortableTableHead label="Status" sortKey="status" currentSort={sortHook.sort} onSort={sortHook.handleSort} />
+                    <SortableTableHead label="Invoice" sortKey="invoice_status" currentSort={sortHook.sort} onSort={sortHook.handleSort} />
+                    <TableCell className="font-medium text-muted-foreground text-sm">Doc</TableCell>
+                    <TableCell className="font-medium text-muted-foreground text-sm">Actions</TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
+                </TableHeader>
+                <TableBody>
+                  {sorted.map((order) => (
+                    <TableRow key={order.id}>
+                      <TableCell className="whitespace-nowrap text-sm">{new Date(order.order_date + "T00:00:00").toLocaleDateString()}</TableCell>
+                      <TableCell className="capitalize text-sm">{order.source}</TableCell>
+                      <TableCell className="font-medium text-sm">{order.customer_name}</TableCell>
+                      <TableCell className="text-sm">{order.po_number || "—"}</TableCell>
+                      <TableCell className="text-right text-sm">{order.total_value ? `$${Number(order.total_value).toLocaleString()}` : "—"}</TableCell>
+                      <TableCell><Badge className={statusColors[order.status] || ""}>{order.status}</Badge></TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-xs">
+                          {order.invoice_status === "invoiced" ? "Invoiced" : order.status === "paid" ? "Paid" : "Not Invoiced"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {order.file_url ? (
+                          <a href={order.file_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary/80">
+                            <ExternalLink className="h-4 w-4" />
+                          </a>
+                        ) : "—"}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          <Select value={order.status} onValueChange={(v) => handleUpdateStatus(order.id, v)}>
+                            <SelectTrigger className="h-7 w-[110px] text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {["new", "processing", "shipped", "delivered", "invoiced", "paid"].map((s) => (
+                                <SelectItem key={s} value={s} className="capitalize text-xs">{s}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => handleDeleteOrder(order.id)}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
+
+  const pendingEmails = forwardedEmails.filter((e) => e.status === "pending");
+  const historyEmails = forwardedEmails.filter((e) => e.status !== "pending");
 
   const velocityRanges: { key: VelocityRange; label: string }[] = [
     { key: "week", label: "1W" }, { key: "month", label: "1M" },
@@ -229,9 +283,9 @@ export const OrdersTab = () => {
             <TabsTrigger value="velocity">Velocity</TabsTrigger>
             <TabsTrigger value="email-pos">
               Email POs
-              {forwardedEmails.filter((e) => e.status === "pending").length > 0 && (
+              {pendingEmails.length > 0 && (
                 <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-warning text-warning-foreground">
-                  {forwardedEmails.filter((e) => e.status === "pending").length}
+                  {pendingEmails.length}
                 </span>
               )}
             </TabsTrigger>
@@ -269,12 +323,12 @@ export const OrdersTab = () => {
           <NLOrderInput onOrderCreated={fetchOrders} />
           <ChannelTiles orders={openOrders} orderItems={orderItems} />
           <h3 className="text-lg font-semibold">All Open Orders</h3>
-          {renderOrderTable(openOrders, "No open orders right now.")}
+          {renderOrderTable(openOrders, openSort, "No open orders right now.")}
         </TabsContent>
 
         <TabsContent value="fulfilled" className="mt-4">
           <h3 className="text-lg font-semibold mb-3">Fulfilled / Past Orders</h3>
-          {renderOrderTable(fulfilledOrders, "No fulfilled orders yet.")}
+          {renderOrderTable(fulfilledOrders, fulfilledSort, "No fulfilled orders yet.")}
         </TabsContent>
 
         <TabsContent value="velocity" className="mt-4">
@@ -308,13 +362,33 @@ export const OrdersTab = () => {
         </TabsContent>
 
         <TabsContent value="email-pos" className="mt-4 space-y-4">
-          <h3 className="text-lg font-semibold">Forwarded Email POs</h3>
-          {forwardedEmails.length === 0 ? (
-            <Card><CardContent className="py-8 text-center text-muted-foreground">No forwarded emails yet.</CardContent></Card>
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold">Forwarded Email POs</h3>
+            <div className="flex gap-1">
+              <Button size="sm" variant={emailView === "pending" ? "default" : "outline"} onClick={() => setEmailView("pending")}>
+                Pending ({pendingEmails.length})
+              </Button>
+              <Button size="sm" variant={emailView === "history" ? "default" : "outline"} onClick={() => setEmailView("history")}>
+                History ({historyEmails.length})
+              </Button>
+            </div>
+          </div>
+          {emailView === "pending" ? (
+            pendingEmails.length === 0 ? (
+              <Card><CardContent className="py-8 text-center text-muted-foreground">No pending emails.</CardContent></Card>
+            ) : (
+              pendingEmails.map((email) => (
+                <ForwardedEmail key={email.id} id={email.id} from={email.email_from} subject={email.email_subject} body={email.email_body || ""} receivedAt={email.received_at} status={email.status} onConvertToOrder={handleConvertToOrder} onMarkAsTask={handleMarkAsTask} onDelete={handleDeleteEmail} />
+              ))
+            )
           ) : (
-            forwardedEmails.map((email) => (
-              <ForwardedEmail key={email.id} id={email.id} from={email.email_from} subject={email.email_subject} body={email.email_body || ""} receivedAt={email.received_at} status={email.status} onConvertToOrder={handleConvertToOrder} onMarkAsTask={handleMarkAsTask} />
-            ))
+            historyEmails.length === 0 ? (
+              <Card><CardContent className="py-8 text-center text-muted-foreground">No processed emails yet.</CardContent></Card>
+            ) : (
+              historyEmails.map((email) => (
+                <ForwardedEmail key={email.id} id={email.id} from={email.email_from} subject={email.email_subject} body={email.email_body || ""} receivedAt={email.received_at} status={email.status} onConvertToOrder={handleConvertToOrder} onMarkAsTask={handleMarkAsTask} onDelete={handleDeleteEmail} />
+              ))
+            )
           )}
         </TabsContent>
 
