@@ -1,88 +1,76 @@
 
 
-## Plan: Fix Critical Issues + Add Key Features
+## Fix Plan: Invoice Parsing, Inventory Display, PO Dates, Cash Position, and File Viewing
 
-This is a large request covering many areas. I'll organize into two phases: **Phase A** (fix broken things) and **Phase B** (new features).
+### Issues Found
 
----
+**1. Invoice parsing returns $0 and wrong data**
+- `InvoiceDropZone` reuses the `parse-po-document` edge function, which has a PO-specific prompt. It calculates amount as `quantity * unitPrice`, but invoices don't have those fields. Need a dedicated invoice parsing prompt that extracts vendor, invoice number, total amount, and due date directly.
 
-### Phase A: Fix What's Broken
+**2. Inventory tab shows wrong data / missing products**
+- Data IS in the database (e.g., "Spaghetti Dust Aglio" with 4,188 units, 349 cases). The frontend `FINISHED_PRODUCTS` filter array has "SpaghettiDust Aglio" (no space) but the DB stores "Spaghetti Dust Aglio" (with space).
+- No `category` column exists on `inventory_items` — the sheet has a category column but it's not being stored. Need to add a `category` column and use it for tab filtering instead of hardcoded product name lists.
 
-**1. Fix PO Upload (PDF parsing doesn't work)**
-The current code sends a placeholder string `[PDF Document: filename]` instead of actual PDF content. Fix:
-- Convert PDF to base64 in the browser and send to the edge function
-- In `parse-po-document`, accept base64 content and use the AI gateway's multimodal capabilities (Gemini) to read the PDF directly
-- After successful parse, auto-create an order in the `orders` table with line items
+**3. PO upload sets wrong date**
+- The `parse-po-document` edge function parses `poDate` correctly but the order insert doesn't use it — `order_date` defaults to `now()`. Need to pass `parsedResult.poDate` as `order_date`.
 
-**2. Fix Google Sheets inventory sync missing products**
-The sync function filters for `category === "Pasta"` or `category === "Dust"` only. SpaghettiDust products may have a different category value or the column matching is failing. Fix:
-- Remove the strict category filter — instead pull ALL rows from the Inventory sheet and store them
-- The frontend already filters by product name, so the edge function doesn't need to pre-filter
-- Also store the SKU column so packaging items (CASE-AGLIO-DUST, TUBE-AGLIO-DUST) are captured
+**4. No file viewing for uploaded POs/invoices**
+- Files are sent as base64 for AI parsing but never stored. Need to upload files to a storage bucket and store the file path on the order/invoice record so users can click to view the original document.
 
-**3. Fix Email POs not showing body / not creating orders**
-- The "Convert to Order" button updates the email status but doesn't actually insert into the `orders` table
-- Fix `handleConvertToOrder` to parse the email and create an order with line items
-- Ensure `email_body` is being stored by the `receive-forwarded-email` function
+**5. Cash Position tile shows "—"**
+- CSV import works but `balance_after` is NULL on most entries. The Chase CSV parser correctly reads the Balance column, but the data shows NULL. The `cashBalance` state only updates when `balance_after` is not null. Need to compute running balance from cash entries if no explicit balance exists.
+
+**6. Dashboard "Cash on Hand" also shows "—"**
+- Same root cause — pulls from `cash_entries.balance_after` which is null. Will be fixed by the same running balance logic.
 
 ---
 
-### Phase B: New Features
+### Implementation Steps
 
-**4. Natural language order input on Orders tab**
-- Add a text input + submit button at the top of the Open Orders sub-tab
-- On submit, send text to AI (via existing chat edge function or a new one) to extract: customer name, product, quantity, urgency
-- Auto-create an order in the `orders` table from the parsed result
-- Example: "Jason at Almond wants a case of radiatory for ASAP" → creates order
+**Step 1: Add `category` and `sku` columns to `inventory_items` + `file_url` to `orders` and `invoices`**
+- Migration: `ALTER TABLE inventory_items ADD COLUMN category text, ADD COLUMN sku text`
+- Migration: `ALTER TABLE orders ADD COLUMN file_url text`
+- Migration: `ALTER TABLE invoices ADD COLUMN file_url text`
+- Create storage bucket `document-uploads` (public) for viewing uploaded files
 
-**5. Channel tiles on Open Orders**
-- Group open orders by source (faire, distributor, shopify/d2c)
-- Show a summary card per channel: count of open orders, total units
-- Expandable to show individual line items
+**Step 2: Fix `sync-google-sheets` to store category and SKU**
+- Find the category and SKU column indices from headers
+- Store them alongside existing fields
+- Frontend `InventoryTab.tsx`: filter by `category` column (values "Pasta"/"Dust" for finished products, "Packaging" for packaging) instead of hardcoded product name arrays
+- Frontend `DashboardTab.tsx`: update inventory snapshot filter similarly
 
-**6. Bank statement CSV upload for Cash Flow**
-- Add a CSV upload zone to the Money tab (or Cash Position card)
-- Parse CSV rows (date, description, amount, balance) — support Chase CSV format
-- Insert parsed rows into `cash_entries` table
-- The existing CashFlowChart already renders from `cash_entries`, so it will auto-populate
+**Step 3: Fix invoice parsing**
+- Create a new edge function `parse-invoice-document` (or add an `invoiceMode` flag to `parse-po-document`) with an invoice-specific AI prompt that extracts: vendor name, invoice number, total amount, due date, description
+- Update `InvoiceDropZone` to use the invoice-specific parsing
+- Upload the file to storage and store `file_url` on the invoice record
 
-**7. Invoice drag-and-drop with AI parsing**
-- Replace the manual "Add Invoice" form with a drag-and-drop zone
-- Upload invoice PDF/image → send to AI gateway to extract: vendor, invoice number, amount, due date
-- Auto-populate and insert into `invoices` table
-- Keep the manual form as a fallback
+**Step 4: Fix PO upload — date + file storage**
+- In `parse-po-document`, set `order_date: parsedResult.poDate` when inserting the order
+- Upload the file to `document-uploads` bucket and store the URL on the order's `file_url`
+- Update `POUploader` to send file for storage
 
-**8. Sales CRM tab**
-- New database table: `crm_accounts` (name, contact_name, contact_email, status, last_contact_date, next_followup_date, notes)
-- New database table: `crm_activities` (account_id, type, description, date)
-- New component: `src/components/tabs/SalesCRMTab.tsx`
-  - Account list with status badges (prospect, active, churned)
-  - Activity log per account
-  - Follow-up reminders (accounts where next_followup_date is approaching)
-  - Email template popover with copy-to-clipboard
-- Add "Sales CRM" tab to Index.tsx
+**Step 5: Add document view icons to order and invoice tables**
+- In `OrdersTab` order table: add a file icon button that opens the stored PDF in a dialog/new tab
+- In `MoneyTab` invoice table: same file icon for viewing uploaded invoices
 
----
+**Step 6: Fix cash position from CSV data**
+- The Chase CSV balance column IS being parsed but stored as NULL (likely a parsing issue with the CSV format). Debug and fix the CSV parser to correctly capture the Balance column.
+- As fallback: compute cash position as the `balance_after` from the most recent entry that has one, or sum all in/out transactions.
+- Update `DashboardTab` cash on hand to use the same logic.
 
-### Database Changes
-- New table `crm_accounts`: id, name, contact_name, contact_email, status, last_contact_date, next_followup_date, followup_cadence_days (default 10), notes, created_at, updated_at
-- New table `crm_activities`: id, account_id (FK), type (email/call/meeting/note), description, date, created_at
-- RLS: authenticated users full CRUD on both tables
+**Step 7: Fix `CashFlowChart` to show balance line**
+- Currently balance is null for most entries. After fixing CSV import, the chart will auto-populate. Also add forward-fill logic so the balance line is continuous even on days with no explicit balance value.
 
 ### Files to Create/Edit
-- **Create**: `src/components/tabs/SalesCRMTab.tsx`
-- **Edit**: `supabase/functions/sync-google-sheets/index.ts` — remove category filter
-- **Edit**: `supabase/functions/parse-po-document/index.ts` — handle base64 PDF
-- **Edit**: `src/components/POUploader.tsx` — send base64 for PDFs, auto-create order after parse
-- **Edit**: `src/components/tabs/OrdersTab.tsx` — add NL input, channel tiles, fix email conversion
-- **Edit**: `src/components/tabs/MoneyTab.tsx` — add CSV upload, invoice drag-drop with AI
-- **Edit**: `src/pages/Index.tsx` — add Sales CRM tab
-
-### Implementation Order
-1. Fix inventory sync (quick win, unblocks dashboard)
-2. Fix PO upload (PDF base64 + AI parsing)
-3. Add NL order input + channel tiles
-4. Add CSV upload for cash flow
-5. Add invoice drag-and-drop
-6. Build Sales CRM tab + migration
+- **Migration**: add `category`, `sku` to `inventory_items`; `file_url` to `orders` and `invoices`; `document-uploads` bucket
+- `supabase/functions/sync-google-sheets/index.ts` — store category + SKU columns
+- `supabase/functions/parse-po-document/index.ts` — set order_date from poDate, upload file to storage
+- `src/components/InvoiceDropZone.tsx` — dedicated invoice AI prompt, upload file to storage, store file_url
+- `src/components/POUploader.tsx` — pass file for storage upload
+- `src/components/CSVUploader.tsx` — fix balance_after parsing
+- `src/components/tabs/InventoryTab.tsx` — filter by category column
+- `src/components/tabs/DashboardTab.tsx` — fix inventory snapshot filter, fix cash on hand
+- `src/components/tabs/OrdersTab.tsx` — add file view icon
+- `src/components/tabs/MoneyTab.tsx` — add file view icon on invoices, fix cash position display
+- `src/components/CashFlowChart.tsx` — forward-fill balance values
 
