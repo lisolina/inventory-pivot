@@ -12,12 +12,33 @@ serve(async (req) => {
   }
 
   try {
-    const { fileName, fileContent, fileBase64, mimeType, autoCreateOrder } = await req.json();
+    const { fileName, fileContent, fileBase64, mimeType, autoCreateOrder, invoiceMode } = await req.json();
     
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
-    const systemPrompt = `You are an expert at parsing Purchase Orders (POs) for a food/beverage distribution company called L'Isolina / SpaghettiDust.
+    // Choose prompt based on mode
+    const systemPrompt = invoiceMode
+      ? `You are an expert at parsing supplier invoices for a food/beverage company called L'Isolina / SpaghettiDust.
+
+Extract from the invoice:
+1. Vendor/supplier name (who is billing us)
+2. Invoice number
+3. Total amount due (the final total, including any taxes/fees)
+4. Due date (when payment is due)
+5. Date issued
+6. Description of what was invoiced
+
+Return JSON:
+{
+  "vendor": "Vendor Name",
+  "invoiceNumber": "INV-12345" or null,
+  "totalAmount": 1234.56,
+  "dueDate": "YYYY-MM-DD" or null,
+  "dateIssued": "YYYY-MM-DD" or null,
+  "description": "Brief description of charges"
+}`
+      : `You are an expert at parsing Purchase Orders (POs) for a food/beverage distribution company called L'Isolina / SpaghettiDust.
 
 Your task is to analyze uploaded PO documents and extract structured data.
 
@@ -45,22 +66,20 @@ Return JSON:
   "notes": "Any special instructions"
 }`;
 
-    // Build messages - use multimodal for PDFs
     const messages: any[] = [{ role: "system", content: systemPrompt }];
     
     if (fileBase64 && mimeType) {
-      // Multimodal: send PDF/image as base64
       messages.push({
         role: "user",
         content: [
-          { type: "text", text: `Parse this Purchase Order document (${fileName}). Extract customer, PO number, dates, and line items.` },
+          { type: "text", text: invoiceMode ? `Parse this invoice document (${fileName}). Extract vendor, invoice number, total amount, and due date.` : `Parse this Purchase Order document (${fileName}). Extract customer, PO number, dates, and line items.` },
           { type: "image_url", image_url: { url: `data:${mimeType};base64,${fileBase64}` } }
         ]
       });
     } else {
       messages.push({
         role: "user",
-        content: `Parse this Purchase Order document.\n\nFile: ${fileName}\n\nContent:\n${fileContent}`
+        content: `Parse this ${invoiceMode ? 'invoice' : 'Purchase Order'} document.\n\nFile: ${fileName}\n\nContent:\n${fileContent}`
       });
     }
 
@@ -106,9 +125,9 @@ Return JSON:
       parsedResult = { rawResponse: content, error: "Could not parse structured data" };
     }
 
-    // Auto-create order if requested and parsing succeeded
+    // Auto-create order if requested and parsing succeeded (PO mode only)
     let createdOrder = null;
-    if (autoCreateOrder && parsedResult.customer && parsedResult.items?.length > 0) {
+    if (!invoiceMode && autoCreateOrder && parsedResult.customer && parsedResult.items?.length > 0) {
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
       const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
       const sb = createClient(supabaseUrl, supabaseKey);
@@ -117,6 +136,7 @@ Return JSON:
         customer_name: parsedResult.customer,
         source: "distributor",
         po_number: parsedResult.poNumber || null,
+        order_date: parsedResult.poDate || new Date().toISOString(),
         delivery_date: parsedResult.deliveryDate || null,
         notes: parsedResult.notes || `Parsed from ${fileName}`,
         status: "new",
@@ -140,7 +160,7 @@ Return JSON:
     });
 
   } catch (error) {
-    console.error("Error parsing PO:", error);
+    console.error("Error parsing document:", error);
     return new Response(JSON.stringify({ 
       error: error instanceof Error ? error.message : "Unknown error" 
     }), {

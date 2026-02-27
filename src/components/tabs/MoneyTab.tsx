@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, DollarSign, TrendingUp, TrendingDown, Link2, Loader2, CheckCircle2 } from "lucide-react";
+import { Plus, DollarSign, TrendingUp, TrendingDown, Link2, Loader2, CheckCircle2, ExternalLink } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { CSVUploader } from "@/components/CSVUploader";
@@ -17,7 +17,7 @@ import { InvoiceDropZone } from "@/components/InvoiceDropZone";
 type TimeRange = "week" | "month" | "quarter" | "year";
 
 interface Invoice {
-  id: string; invoice_number: string | null; customer: string; amount: number; date_issued: string; due_date: string; status: string;
+  id: string; invoice_number: string | null; customer: string; amount: number; date_issued: string; due_date: string; status: string; file_url?: string | null;
 }
 interface Expense {
   id: string; date: string; category: string; description: string; amount: number; type: string; status: string;
@@ -53,7 +53,20 @@ export const MoneyTab = () => {
     if (expRes.data) setExpenses(expRes.data);
     if (cashRes.data) {
       setCashEntries(cashRes.data);
-      if (cashRes.data.length > 0 && cashRes.data[0].balance_after !== null) setCashBalance(Number(cashRes.data[0].balance_after));
+      // Find the most recent entry with balance_after
+      const withBalance = cashRes.data.find((e: any) => e.balance_after !== null);
+      if (withBalance) {
+        setCashBalance(Number(withBalance.balance_after));
+      } else if (cashRes.data.length > 0) {
+        // Fallback: sum all in/out transactions
+        let running = 0;
+        const sorted = [...cashRes.data].reverse();
+        sorted.forEach((e: any) => {
+          if (e.type === "in") running += Number(e.amount);
+          else if (e.type === "out") running -= Number(e.amount);
+        });
+        setCashBalance(running);
+      }
     }
   };
 
@@ -277,7 +290,7 @@ export const MoneyTab = () => {
                     <TableRow>
                       <TableHead>Invoice #</TableHead><TableHead>Customer</TableHead>
                       <TableHead className="text-right">Amount</TableHead><TableHead>Due</TableHead>
-                      <TableHead>Status</TableHead><TableHead>Action</TableHead>
+                      <TableHead>Status</TableHead><TableHead>Doc</TableHead><TableHead>Action</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -288,6 +301,13 @@ export const MoneyTab = () => {
                         <TableCell className="text-right">${Number(inv.amount).toLocaleString()}</TableCell>
                         <TableCell>{new Date(inv.due_date).toLocaleDateString()}</TableCell>
                         <TableCell>{getDueBadge(inv.due_date, inv.status)}</TableCell>
+                        <TableCell>
+                          {(inv as any).file_url ? (
+                            <a href={(inv as any).file_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary/80">
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                          ) : "—"}
+                        </TableCell>
                         <TableCell>
                           {inv.status !== "paid" && (
                             <Button size="sm" variant="outline" onClick={() => handleMarkInvoicePaid(inv.id)}>Mark Paid</Button>

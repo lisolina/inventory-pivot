@@ -276,34 +276,40 @@ export type Database = {
       inventory_items: {
         Row: {
           cases_on_hand: string | null
+          category: string | null
           created_at: string
           id: string
           last_synced: string
           product_name: string
           reorder: string | null
           reorder_level: string | null
+          sku: string | null
           stock_value: string | null
           units_on_hand: string | null
         }
         Insert: {
           cases_on_hand?: string | null
+          category?: string | null
           created_at?: string
           id?: string
           last_synced?: string
           product_name: string
           reorder?: string | null
           reorder_level?: string | null
+          sku?: string | null
           stock_value?: string | null
           units_on_hand?: string | null
         }
         Update: {
           cases_on_hand?: string | null
+          category?: string | null
           created_at?: string
           id?: string
           last_synced?: string
           product_name?: string
           reorder?: string | null
           reorder_level?: string | null
+          sku?: string | null
           stock_value?: string | null
           units_on_hand?: string | null
         }
@@ -412,6 +418,7 @@ export type Database = {
           customer: string
           date_issued: string
           due_date: string
+          file_url: string | null
           id: string
           invoice_number: string | null
           order_id: string | null
@@ -425,6 +432,7 @@ export type Database = {
           customer: string
           date_issued?: string
           due_date: string
+          file_url?: string | null
           id?: string
           invoice_number?: string | null
           order_id?: string | null
@@ -438,6 +446,7 @@ export type Database = {
           customer?: string
           date_issued?: string
           due_date?: string
+          file_url?: string | null
           id?: string
           invoice_number?: string | null
           order_id?: string | null
@@ -506,6 +515,7 @@ export type Database = {
           created_at: string
           customer_name: string
           delivery_date: string | null
+          file_url: string | null
           id: string
           invoice_number: string | null
           invoice_status: string | null
@@ -525,6 +535,7 @@ export type Database = {
           created_at?: string
           customer_name: string
           delivery_date?: string | null
+          file_url?: string | null
           id?: string
           invoice_number?: string | null
           invoice_status?: string | null
@@ -544,6 +555,7 @@ export type Database = {
           created_at?: string
           customer_name?: string
           delivery_date?: string | null
+          file_url?: string | null
           id?: string
           invoice_number?: string | null
           invoice_status?: string | null

@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid } from "recharts";
-import { Plus } from "lucide-react";
+import { Plus, ExternalLink } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { POUploader } from "@/components/POUploader";
@@ -170,7 +170,7 @@ export const OrdersTab = () => {
                 <TableRow>
                   <TableHead>Date</TableHead><TableHead>Source</TableHead><TableHead>Customer</TableHead>
                   <TableHead>PO #</TableHead><TableHead className="text-right">Value</TableHead>
-                  <TableHead>Status</TableHead><TableHead>Invoice</TableHead><TableHead>Actions</TableHead>
+                  <TableHead>Status</TableHead><TableHead>Invoice</TableHead><TableHead>Doc</TableHead><TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -186,6 +186,13 @@ export const OrdersTab = () => {
                       <Badge variant="outline" className="text-xs">
                         {order.invoice_status === "invoiced" ? "Invoiced" : order.status === "paid" ? "Paid" : "Not Invoiced"}
                       </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {(order as any).file_url ? (
+                        <a href={(order as any).file_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary/80">
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      ) : "—"}
                     </TableCell>
                     <TableCell>
                       <Select value={order.status} onValueChange={(v) => handleUpdateStatus(order.id, v)}>

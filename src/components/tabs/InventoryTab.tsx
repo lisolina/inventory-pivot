@@ -10,6 +10,8 @@ import { useToast } from "@/hooks/use-toast";
 
 interface SheetItem {
   product_name: string;
+  category: string | null;
+  sku: string | null;
   reorder_level: string | null;
   units_on_hand: string | null;
   cases_on_hand: string | null;
@@ -17,17 +19,6 @@ interface SheetItem {
   reorder: string | null;
   last_synced: string;
 }
-
-// Only live finished products
-const FINISHED_PRODUCTS = [
-  "SpaghettiDust Aglio",
-  "Radiatore",
-  "Casarecce",
-  "Fusilli",
-  "Rigatoni",
-];
-
-const PACKAGING_SKUS = ["CASE-AGLIO-DUST", "TUBE-AGLIO-DUST"];
 
 export const InventoryTab = () => {
   const { toast } = useToast();
@@ -42,7 +33,7 @@ export const InventoryTab = () => {
       supabase.from("inventory_shipping").select("*").order("item_name"),
     ]);
     if (sheetsRes.data) {
-      setAllItems(sheetsRes.data);
+      setAllItems(sheetsRes.data as any);
       if (sheetsRes.data.length > 0) setLastSynced(sheetsRes.data[0].last_synced);
     }
     if (shipRes.data) setShipping(shipRes.data);
@@ -65,13 +56,16 @@ export const InventoryTab = () => {
     }
   };
 
-  const finishedItems = allItems.filter((item) =>
-    FINISHED_PRODUCTS.some((p) => item.product_name.toLowerCase().includes(p.toLowerCase()))
-  );
+  // Filter by category column from the spreadsheet
+  const finishedItems = allItems.filter((item) => {
+    const cat = (item.category || "").toLowerCase().trim();
+    return cat === "pasta" || cat === "dust";
+  });
 
-  const packagingItems = allItems.filter((item) =>
-    PACKAGING_SKUS.some((sku) => item.product_name.toUpperCase().includes(sku))
-  );
+  const packagingItems = allItems.filter((item) => {
+    const cat = (item.category || "").toLowerCase().trim();
+    return cat === "packaging";
+  });
 
   const totalStockValue = finishedItems.reduce((sum, item) => {
     const val = parseFloat(item.stock_value?.replace(/[^0-9.-]/g, "") || "0");
@@ -166,7 +160,7 @@ export const InventoryTab = () => {
             <CardContent>
               {packagingItems.length === 0 ? (
                 <p className="text-center text-muted-foreground py-8">
-                  No packaging items found. These pull from SKUs: {PACKAGING_SKUS.join(", ")}
+                  No packaging items found. Sync from Google Sheets — items with category "Packaging" will appear here.
                 </p>
               ) : (
                 renderSheetTable(packagingItems, false)
@@ -183,7 +177,7 @@ export const InventoryTab = () => {
             <CardContent>
               {shipping.length === 0 ? (
                 <p className="text-center text-muted-foreground py-8">
-                  No shipping supplies tracked yet. Add items to your Google Sheet to pull them in.
+                  No shipping supplies tracked yet.
                 </p>
               ) : (
                 <Table>

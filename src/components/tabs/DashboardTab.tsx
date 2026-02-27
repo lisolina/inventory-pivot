@@ -26,14 +26,6 @@ const MetricCard = ({ title, value, icon: Icon, subtitle }: MetricCardProps) => 
   </Card>
 );
 
-const FINISHED_PRODUCTS = [
-  "SpaghettiDust Aglio",
-  "Radiatore",
-  "Casarecce",
-  "Fusilli",
-  "Rigatoni",
-];
-
 interface InventorySnapshot {
   product_name: string;
   units_on_hand: string;
@@ -54,24 +46,25 @@ export const DashboardTab = () => {
     const fetchMetrics = async () => {
       const [orderCountRes, cashRes, invRes, revenueRes, dueInvRes] = await Promise.all([
         supabase.from("orders").select("*", { count: "exact", head: true }).in("status", ["new", "processing"]),
-        supabase.from("cash_entries").select("balance_after").order("date", { ascending: false }).limit(1),
-        supabase.from("inventory_items").select("product_name, units_on_hand, cases_on_hand, stock_value"),
+        supabase.from("cash_entries").select("date, type, amount, balance_after").order("date", { ascending: false }).limit(500),
+        supabase.from("inventory_items").select("product_name, units_on_hand, cases_on_hand, stock_value, category"),
         supabase.from("orders").select("total_value").gte("order_date", new Date(Date.now() - 7 * 86400000).toISOString()),
         supabase.from("invoices").select("customer, amount, due_date").eq("status", "pending").lte("due_date", new Date(Date.now() + 7 * 86400000).toISOString()),
       ]);
 
-      // Inventory snapshot - filter to finished products
-      const finishedItems = (invRes.data || []).filter((item) =>
-        FINISHED_PRODUCTS.some((p) => item.product_name.toLowerCase().includes(p.toLowerCase()))
-      );
-      setInventorySnapshot(finishedItems.map((i) => ({
+      // Inventory snapshot - filter by category (pasta/dust = finished products)
+      const finishedItems = (invRes.data || []).filter((item: any) => {
+        const cat = ((item as any).category || "").toLowerCase().trim();
+        return cat === "pasta" || cat === "dust";
+      });
+      setInventorySnapshot(finishedItems.map((i: any) => ({
         product_name: i.product_name,
         units_on_hand: i.units_on_hand || "0",
         cases_on_hand: i.cases_on_hand || "0",
       })));
 
       let totalInvValue = 0;
-      finishedItems.forEach((item) => {
+      finishedItems.forEach((item: any) => {
         const val = parseFloat(item.stock_value?.replace(/[^0-9.-]/g, "") || "0");
         if (!isNaN(val)) totalInvValue += val;
       });
@@ -87,8 +80,27 @@ export const DashboardTab = () => {
         else alertList.push(`🟡 ${inv.customer} invoice ($${inv.amount}) due in ${days} days`);
       });
 
+      // Cash on hand: find the most recent entry with balance_after, or compute from entries
+      let cashOnHand: number | null = null;
+      const cashData = cashRes.data || [];
+      // First try: most recent entry with balance_after
+      const withBalance = cashData.find((e: any) => e.balance_after !== null);
+      if (withBalance) {
+        cashOnHand = Number((withBalance as any).balance_after);
+      } else if (cashData.length > 0) {
+        // Fallback: sum all in/out transactions
+        let running = 0;
+        // Process oldest first
+        const sorted = [...cashData].reverse();
+        sorted.forEach((e: any) => {
+          if (e.type === "in") running += Number(e.amount);
+          else if (e.type === "out") running -= Number(e.amount);
+        });
+        cashOnHand = running;
+      }
+
       setMetrics({
-        cashOnHand: cashRes.data?.[0]?.balance_after ? `$${Number(cashRes.data[0].balance_after).toLocaleString()}` : "—",
+        cashOnHand: cashOnHand !== null ? `$${cashOnHand.toLocaleString()}` : "—",
         inventoryValue: totalInvValue > 0 ? `$${totalInvValue.toLocaleString()}` : "—",
         openOrders: String(orderCountRes.count || 0),
         weekRevenue: weekRevenue > 0 ? `$${weekRevenue.toLocaleString()}` : "—",

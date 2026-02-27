@@ -2,7 +2,7 @@ import { useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Upload, FileText, Loader2, CheckCircle2, AlertCircle, Plus } from "lucide-react";
+import { Upload, FileText, Loader2, CheckCircle2, AlertCircle, ExternalLink } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -23,6 +23,7 @@ interface UploadedPO {
   result?: ParsedPO;
   error?: string;
   orderCreated?: boolean;
+  fileUrl?: string;
 }
 
 interface POUploaderProps {
@@ -38,12 +39,7 @@ export function POUploader({ onAddTask, onOrderCreated }: POUploaderProps) {
   const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        // Strip data URL prefix to get pure base64
-        const base64 = result.split(",")[1];
-        resolve(base64);
-      };
+      reader.onload = () => resolve((reader.result as string).split(",")[1]);
       reader.onerror = reject;
       reader.readAsDataURL(file);
     });
@@ -66,11 +62,20 @@ export function POUploader({ onAddTask, onOrderCreated }: POUploaderProps) {
 
       try {
         let body: any = { fileName: file.name, autoCreateOrder: true };
+        let fileUrl: string | undefined;
 
         if (file.type === "application/pdf" || file.type.startsWith("image/")) {
           const base64 = await fileToBase64(file);
           body.fileBase64 = base64;
           body.mimeType = file.type;
+
+          // Upload to storage for viewing
+          const filePath = `pos/${Date.now()}-${file.name}`;
+          const fileBlob = new Blob([Uint8Array.from(atob(base64), c => c.charCodeAt(0))], { type: file.type });
+          const { error: uploadErr } = await supabase.storage.from("document-uploads").upload(filePath, fileBlob, { contentType: file.type });
+          if (!uploadErr) {
+            fileUrl = supabase.storage.from("document-uploads").getPublicUrl(filePath).data.publicUrl;
+          }
         } else {
           const content = await readFileContent(file);
           body.fileContent = content.substring(0, 50000);
@@ -79,9 +84,14 @@ export function POUploader({ onAddTask, onOrderCreated }: POUploaderProps) {
         const { data, error } = await supabase.functions.invoke('parse-po-document', { body });
         if (error) throw error;
 
+        // Update order with file_url if we have one
+        if (fileUrl && data.createdOrder?.id) {
+          await supabase.from("orders").update({ file_url: fileUrl } as any).eq("id", data.createdOrder.id);
+        }
+
         setUploadedPOs(prev => prev.map(po => 
           po.fileName === file.name 
-            ? { ...po, status: "success", result: data.result, orderCreated: !!data.createdOrder }
+            ? { ...po, status: "success", result: data.result, orderCreated: !!data.createdOrder, fileUrl }
             : po
         ));
 
@@ -143,6 +153,11 @@ export function POUploader({ onAddTask, onOrderCreated }: POUploaderProps) {
               <div className="flex items-center gap-2">
                 <FileText className="h-4 w-4 text-muted-foreground" />
                 <span className="font-medium text-sm">{po.fileName}</span>
+                {po.fileUrl && (
+                  <a href={po.fileUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary/80">
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                )}
               </div>
               {po.status === "parsing" && <Badge variant="secondary" className="flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> Parsing...</Badge>}
               {po.status === "success" && <Badge variant="default" className="flex items-center gap-1 bg-green-600"><CheckCircle2 className="h-3 w-3" /> {po.orderCreated ? "Order Created" : "Parsed"}</Badge>}
