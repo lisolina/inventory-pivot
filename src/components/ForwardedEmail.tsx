@@ -2,6 +2,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Trash2 } from "lucide-react";
 import { useState } from "react";
 
 interface ForwardedEmailProps {
@@ -13,17 +14,11 @@ interface ForwardedEmailProps {
   status: string;
   onConvertToOrder: (id: string) => void;
   onMarkAsTask: (id: string, notes: string) => void;
+  onDelete?: (id: string) => void;
 }
 
 export const ForwardedEmail = ({
-  id,
-  from,
-  subject,
-  body,
-  receivedAt,
-  status,
-  onConvertToOrder,
-  onMarkAsTask,
+  id, from, subject, body, receivedAt, status, onConvertToOrder, onMarkAsTask, onDelete,
 }: ForwardedEmailProps) => {
   const [notes, setNotes] = useState("");
   const [isExpanded, setIsExpanded] = useState(false);
@@ -38,56 +33,36 @@ export const ForwardedEmail = ({
               From: {from} • {new Date(receivedAt).toLocaleString()}
             </CardDescription>
           </div>
-          <Badge variant={status === "pending" ? "secondary" : "outline"}>
-            {status}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant={status === "pending" ? "secondary" : "outline"}>{status}</Badge>
+            {onDelete && (
+              <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => onDelete(id)}>
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
         </div>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
           <div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsExpanded(!isExpanded)}
-              className="mb-2"
-            >
+            <Button variant="ghost" size="sm" onClick={() => setIsExpanded(!isExpanded)} className="mb-2">
               {isExpanded ? "Hide" : "Show"} Email Body
             </Button>
             {isExpanded && (
-              <div className="p-3 bg-muted rounded-md text-sm whitespace-pre-wrap max-h-64 overflow-y-auto">
-                {body}
-              </div>
+              <div className="p-3 bg-muted rounded-md text-sm whitespace-pre-wrap max-h-64 overflow-y-auto">{body}</div>
             )}
           </div>
 
           {status === "pending" && (
             <>
               <div>
-                <label className="text-sm font-medium mb-2 block">
-                  Notes (optional)
-                </label>
-                <Textarea
-                  placeholder="Add notes or task details..."
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  rows={3}
-                />
+                <label className="text-sm font-medium mb-2 block">Notes (optional)</label>
+                <Textarea placeholder="Add notes or task details..." value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
               </div>
-
               <div className="flex gap-2">
-                <Button
-                  onClick={() => onConvertToOrder(id)}
-                  variant="default"
-                >
-                  Convert to Order
-                </Button>
-                <Button
-                  onClick={() => onMarkAsTask(id, notes)}
-                  variant="secondary"
-                >
-                  Mark as Task
-                </Button>
+                <Button onClick={() => onConvertToOrder(id)} variant="default">Convert to Order</Button>
+                <Button onClick={() => onMarkAsTask(id, notes)} variant="secondary">Mark as Task</Button>
               </div>
             </>
           )}

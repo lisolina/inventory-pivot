@@ -5,14 +5,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, DollarSign, TrendingUp, TrendingDown, Link2, Loader2, CheckCircle2, ExternalLink } from "lucide-react";
+import { Plus, DollarSign, TrendingUp, TrendingDown, Link2, Loader2, CheckCircle2, ExternalLink, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { CSVUploader } from "@/components/CSVUploader";
 import { InvoiceDropZone } from "@/components/InvoiceDropZone";
+import { CashFlowChart } from "@/components/CashFlowChart";
+import { SortableTableHead, useSort, sortData } from "@/components/SortableTableHead";
 
 type TimeRange = "week" | "month" | "quarter" | "year";
 
@@ -42,23 +44,34 @@ export const MoneyTab = () => {
   const [newExpense, setNewExpense] = useState({ description: "", amount: "", category: "other", type: "one-time", status: "upcoming" });
   const [qbStatus, setQbStatus] = useState<"unknown" | "connected" | "disconnected">("unknown");
   const [qbConnecting, setQbConnecting] = useState(false);
+  const invoiceSort = useSort();
+  const expenseSort = useSort();
+  const cashSort = useSort();
 
   const fetchAll = async () => {
     const [invRes, expRes, cashRes] = await Promise.all([
       supabase.from("invoices").select("*").order("due_date", { ascending: true }),
       supabase.from("expenses").select("*").order("date", { ascending: false }),
-      supabase.from("cash_entries").select("*").order("date", { ascending: false }).limit(200),
+      supabase.from("cash_entries").select("*").order("date", { ascending: false }).limit(500),
     ]);
-    if (invRes.data) setInvoices(invRes.data);
+    if (invRes.data) setInvoices(invRes.data as any);
     if (expRes.data) setExpenses(expRes.data);
     if (cashRes.data) {
       setCashEntries(cashRes.data);
       // Find the most recent entry with balance_after
       const withBalance = cashRes.data.find((e: any) => e.balance_after !== null);
       if (withBalance) {
-        setCashBalance(Number(withBalance.balance_after));
+        let bal = Number(withBalance.balance_after);
+        const balanceDate = new Date(withBalance.date).getTime();
+        // Apply pending charges after the last reported balance
+        cashRes.data.forEach((e: any) => {
+          if (new Date(e.date).getTime() > balanceDate && e.balance_after === null) {
+            if (e.type === "in") bal += Number(e.amount);
+            else if (e.type === "out") bal -= Number(e.amount);
+          }
+        });
+        setCashBalance(bal);
       } else if (cashRes.data.length > 0) {
-        // Fallback: sum all in/out transactions
         let running = 0;
         const sorted = [...cashRes.data].reverse();
         sorted.forEach((e: any) => {
@@ -170,6 +183,17 @@ export const MoneyTab = () => {
     toast({ title: "Invoice Marked as Paid" });
   };
 
+  const handleDeleteInvoice = async (id: string) => {
+    try {
+      const { error } = await supabase.from("invoices").delete().eq("id", id);
+      if (error) throw error;
+      fetchAll();
+      toast({ title: "Invoice Deleted" });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
   const getDueBadge = (dueDate: string, status: string) => {
     if (status === "paid") return <Badge className="bg-success text-success-foreground">Paid</Badge>;
     const days = Math.ceil((new Date(dueDate).getTime() - Date.now()) / 86400000);
@@ -187,6 +211,41 @@ export const MoneyTab = () => {
       ))}
     </div>
   );
+
+  const invGetVal = (item: Invoice, key: string) => {
+    switch (key) {
+      case "invoice_number": return item.invoice_number;
+      case "customer": return item.customer;
+      case "amount": return item.amount;
+      case "due_date": return item.due_date;
+      case "status": return item.status;
+      default: return "";
+    }
+  };
+  const expGetVal = (item: Expense, key: string) => {
+    switch (key) {
+      case "date": return item.date;
+      case "description": return item.description;
+      case "category": return item.category;
+      case "amount": return item.amount;
+      case "type": return item.type;
+      default: return "";
+    }
+  };
+  const cashGetVal = (item: CashEntry, key: string) => {
+    switch (key) {
+      case "date": return item.date;
+      case "type": return item.type;
+      case "description": return item.description;
+      case "amount": return item.amount;
+      case "balance_after": return item.balance_after;
+      default: return "";
+    }
+  };
+
+  const sortedInvoices = sortData(invoices, invoiceSort.sort, invGetVal);
+  const sortedPaidExpenses = sortData(paidExpenses, expenseSort.sort, expGetVal);
+  const sortedCash = sortData(filteredCash, cashSort.sort, cashGetVal);
 
   return (
     <div className="space-y-6">
@@ -244,14 +303,17 @@ export const MoneyTab = () => {
             </Dialog>
           </CardHeader>
           <CardContent>
-            <div className="text-4xl font-bold">{cashBalance !== null ? `$${cashBalance.toLocaleString()}` : "— Not set yet"}</div>
+            <div className="text-4xl font-bold">{cashBalance !== null ? `$${cashBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "— Not set yet"}</div>
             <p className="text-sm text-muted-foreground mt-1">
-              {cashEntries.length > 0 ? `Last updated: ${new Date(cashEntries[0].date).toLocaleDateString()}` : "Click 'Update Cash' to set your starting balance"}
+              {cashEntries.length > 0 ? `Includes pending charges through ${new Date(cashEntries[0].date).toLocaleDateString()}` : "Click 'Update Cash' to set your starting balance"}
             </p>
           </CardContent>
         </Card>
         <CSVUploader onUploadComplete={fetchAll} />
       </div>
+
+      {/* Cash Flow Chart */}
+      <CashFlowChart />
 
       <Tabs defaultValue="receivables">
         <TabsList>
@@ -278,7 +340,6 @@ export const MoneyTab = () => {
               </DialogContent>
             </Dialog>
           </div>
-          {/* Invoice Drop Zone */}
           <InvoiceDropZone onInvoiceCreated={fetchAll} />
           <Card>
             <CardContent className="pt-6">
@@ -288,13 +349,17 @@ export const MoneyTab = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Invoice #</TableHead><TableHead>Customer</TableHead>
-                      <TableHead className="text-right">Amount</TableHead><TableHead>Due</TableHead>
-                      <TableHead>Status</TableHead><TableHead>Doc</TableHead><TableHead>Action</TableHead>
+                      <SortableTableHead label="Invoice #" sortKey="invoice_number" currentSort={invoiceSort.sort} onSort={invoiceSort.handleSort} />
+                      <SortableTableHead label="Customer" sortKey="customer" currentSort={invoiceSort.sort} onSort={invoiceSort.handleSort} />
+                      <SortableTableHead label="Amount" sortKey="amount" currentSort={invoiceSort.sort} onSort={invoiceSort.handleSort} className="text-right" />
+                      <SortableTableHead label="Due" sortKey="due_date" currentSort={invoiceSort.sort} onSort={invoiceSort.handleSort} />
+                      <SortableTableHead label="Status" sortKey="status" currentSort={invoiceSort.sort} onSort={invoiceSort.handleSort} />
+                      <TableCell className="font-medium text-muted-foreground text-sm">Doc</TableCell>
+                      <TableCell className="font-medium text-muted-foreground text-sm">Action</TableCell>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {invoices.map((inv) => (
+                    {sortedInvoices.map((inv) => (
                       <TableRow key={inv.id}>
                         <TableCell>{inv.invoice_number || "—"}</TableCell>
                         <TableCell className="font-medium">{inv.customer}</TableCell>
@@ -302,16 +367,21 @@ export const MoneyTab = () => {
                         <TableCell>{new Date(inv.due_date).toLocaleDateString()}</TableCell>
                         <TableCell>{getDueBadge(inv.due_date, inv.status)}</TableCell>
                         <TableCell>
-                          {(inv as any).file_url ? (
-                            <a href={(inv as any).file_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary/80">
+                          {inv.file_url ? (
+                            <a href={inv.file_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary/80">
                               <ExternalLink className="h-4 w-4" />
                             </a>
                           ) : "—"}
                         </TableCell>
                         <TableCell>
-                          {inv.status !== "paid" && (
-                            <Button size="sm" variant="outline" onClick={() => handleMarkInvoicePaid(inv.id)}>Mark Paid</Button>
-                          )}
+                          <div className="flex items-center gap-1">
+                            {inv.status !== "paid" && (
+                              <Button size="sm" variant="outline" onClick={() => handleMarkInvoicePaid(inv.id)}>Mark Paid</Button>
+                            )}
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => handleDeleteInvoice(inv.id)}>
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -331,8 +401,10 @@ export const MoneyTab = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Description</TableHead><TableHead>Category</TableHead>
-                      <TableHead className="text-right">Amount</TableHead><TableHead>Type</TableHead>
+                      <SortableTableHead label="Description" sortKey="description" currentSort={expenseSort.sort} onSort={expenseSort.handleSort} />
+                      <SortableTableHead label="Category" sortKey="category" currentSort={expenseSort.sort} onSort={expenseSort.handleSort} />
+                      <SortableTableHead label="Amount" sortKey="amount" currentSort={expenseSort.sort} onSort={expenseSort.handleSort} className="text-right" />
+                      <SortableTableHead label="Type" sortKey="type" currentSort={expenseSort.sort} onSort={expenseSort.handleSort} />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -395,18 +467,21 @@ export const MoneyTab = () => {
           </div>
           <Card>
             <CardContent className="pt-6">
-              {paidExpenses.length === 0 ? (
+              {sortedPaidExpenses.length === 0 ? (
                 <p className="text-center text-muted-foreground py-8">No expenses in this period.</p>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Date</TableHead><TableHead>Description</TableHead><TableHead>Category</TableHead>
-                      <TableHead className="text-right">Amount</TableHead><TableHead>Type</TableHead>
+                      <SortableTableHead label="Date" sortKey="date" currentSort={expenseSort.sort} onSort={expenseSort.handleSort} />
+                      <SortableTableHead label="Description" sortKey="description" currentSort={expenseSort.sort} onSort={expenseSort.handleSort} />
+                      <SortableTableHead label="Category" sortKey="category" currentSort={expenseSort.sort} onSort={expenseSort.handleSort} />
+                      <SortableTableHead label="Amount" sortKey="amount" currentSort={expenseSort.sort} onSort={expenseSort.handleSort} className="text-right" />
+                      <SortableTableHead label="Type" sortKey="type" currentSort={expenseSort.sort} onSort={expenseSort.handleSort} />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {paidExpenses.map((exp) => (
+                    {sortedPaidExpenses.map((exp) => (
                       <TableRow key={exp.id}>
                         <TableCell>{new Date(exp.date).toLocaleDateString()}</TableCell>
                         <TableCell className="font-medium">{exp.description}</TableCell>
@@ -430,18 +505,21 @@ export const MoneyTab = () => {
           </div>
           <Card>
             <CardContent className="pt-6">
-              {filteredCash.length === 0 ? (
+              {sortedCash.length === 0 ? (
                 <p className="text-center text-muted-foreground py-8">No cash entries in this period.</p>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Date</TableHead><TableHead>Type</TableHead><TableHead>Description</TableHead>
-                      <TableHead className="text-right">Amount</TableHead><TableHead className="text-right">Balance</TableHead>
+                      <SortableTableHead label="Date" sortKey="date" currentSort={cashSort.sort} onSort={cashSort.handleSort} />
+                      <SortableTableHead label="Type" sortKey="type" currentSort={cashSort.sort} onSort={cashSort.handleSort} />
+                      <SortableTableHead label="Description" sortKey="description" currentSort={cashSort.sort} onSort={cashSort.handleSort} />
+                      <SortableTableHead label="Amount" sortKey="amount" currentSort={cashSort.sort} onSort={cashSort.handleSort} className="text-right" />
+                      <SortableTableHead label="Balance" sortKey="balance_after" currentSort={cashSort.sort} onSort={cashSort.handleSort} className="text-right" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredCash.map((entry) => (
+                    {sortedCash.map((entry) => (
                       <TableRow key={entry.id}>
                         <TableCell>{new Date(entry.date).toLocaleDateString()}</TableCell>
                         <TableCell>
