@@ -1,8 +1,6 @@
 import { useState, useCallback } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Upload, FileText, Loader2, CheckCircle2 } from "lucide-react";
+import { Upload, Loader2, CheckCircle2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
@@ -30,31 +28,45 @@ export const InvoiceDropZone = ({ onInvoiceCreated }: InvoiceDropZoneProps) => {
     setParsed(null);
     try {
       const base64 = await fileToBase64(file);
+
+      // Upload file to storage for viewing later
+      const filePath = `invoices/${Date.now()}-${file.name}`;
+      const fileBlob = new Blob([Uint8Array.from(atob(base64), c => c.charCodeAt(0))], { type: file.type });
+      const { error: uploadErr } = await supabase.storage.from("document-uploads").upload(filePath, fileBlob, { contentType: file.type });
+      if (uploadErr) console.error("File upload error:", uploadErr);
+
+      const fileUrl = uploadErr ? null : supabase.storage.from("document-uploads").getPublicUrl(filePath).data.publicUrl;
+
+      // Use dedicated invoice mode
       const { data, error } = await supabase.functions.invoke("parse-po-document", {
         body: {
           fileName: file.name,
           fileBase64: base64,
           mimeType: file.type,
           autoCreateOrder: false,
+          invoiceMode: true,
         },
       });
       if (error) throw error;
 
       const r = data.result;
-      if (r?.customer && r?.items?.length > 0) {
-        const totalAmount = r.items.reduce((sum: number, i: any) => sum + (i.quantity * (i.unitPrice || 0)), 0);
-        const dueDate = r.deliveryDate || new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0];
+      if (r) {
+        const amount = r.totalAmount || r.amount || 0;
+        const dueDate = r.dueDate || r.deliveryDate || new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0];
+        const customer = r.vendor || r.customer || "Unknown";
+        const invoiceNumber = r.invoiceNumber || r.poNumber || null;
 
         const { error: invErr } = await supabase.from("invoices").insert({
-          customer: r.customer,
-          amount: totalAmount || parseFloat(r.totalAmount) || 0,
+          customer,
+          amount: parseFloat(String(amount)) || 0,
           due_date: dueDate,
-          invoice_number: r.poNumber || r.invoiceNumber || null,
-        });
+          invoice_number: invoiceNumber,
+          file_url: fileUrl,
+        } as any);
         if (invErr) throw invErr;
 
-        setParsed(r);
-        toast({ title: "Invoice Created", description: `${r.customer} — $${totalAmount || r.totalAmount || 0}` });
+        setParsed({ customer, amount, invoiceNumber });
+        toast({ title: "Invoice Created", description: `${customer} — $${amount}` });
         onInvoiceCreated();
       } else {
         toast({ title: "Could not parse invoice", description: "Try adding it manually", variant: "destructive" });
@@ -87,7 +99,7 @@ export const InvoiceDropZone = ({ onInvoiceCreated }: InvoiceDropZoneProps) => {
       ) : parsed ? (
         <div className="flex flex-col items-center gap-2">
           <CheckCircle2 className="h-8 w-8 text-green-500" />
-          <p className="text-sm font-medium">Invoice from {parsed.customer} added</p>
+          <p className="text-sm font-medium">Invoice from {parsed.customer} added — ${parsed.amount}</p>
           <Button variant="ghost" size="sm" onClick={() => setParsed(null)}>Add Another</Button>
         </div>
       ) : (

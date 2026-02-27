@@ -1,7 +1,6 @@
 import { useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Upload, FileSpreadsheet, Loader2, CheckCircle2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -16,7 +15,7 @@ export const CSVUploader = ({ onUploadComplete }: CSVUploaderProps) => {
   const [isDragging, setIsDragging] = useState(false);
   const [result, setResult] = useState<{ count: number } | null>(null);
 
-  const parseChaseCSV = (text: string) => {
+  const parseCSV = (text: string) => {
     const lines = text.trim().split("\n");
     if (lines.length < 2) return [];
 
@@ -24,10 +23,24 @@ export const CSVUploader = ({ onUploadComplete }: CSVUploaderProps) => {
     // Chase format: Details,Posting Date,Description,Amount,Type,Balance,Check or Slip #
     const isChase = header.includes("posting date") || header.includes("details");
 
+    // Parse header to find column indices
+    const headerCols = lines[0].split(",").map(c => c.replace(/^"|"$/g, "").trim().toLowerCase());
+    const balanceIdx = headerCols.findIndex(h => h === "balance" || h.includes("balance"));
+
     const entries: any[] = [];
     for (let i = 1; i < lines.length; i++) {
-      const cols = lines[i].split(",").map(c => c.replace(/^"|"$/g, "").trim());
-      if (cols.length < 4) continue;
+      // Handle CSV with quoted fields containing commas
+      const cols: string[] = [];
+      let current = "";
+      let inQuotes = false;
+      for (const char of lines[i]) {
+        if (char === '"') { inQuotes = !inQuotes; continue; }
+        if (char === ',' && !inQuotes) { cols.push(current.trim()); current = ""; continue; }
+        current += char;
+      }
+      cols.push(current.trim());
+
+      if (cols.length < 3) continue;
 
       let date: string, description: string, amount: number, balance: number | null = null;
 
@@ -36,13 +49,23 @@ export const CSVUploader = ({ onUploadComplete }: CSVUploaderProps) => {
         date = cols[1];
         description = cols[2];
         amount = parseFloat(cols[3]);
-        balance = cols[5] ? parseFloat(cols[5]) : null;
+        // Get balance from the Balance column
+        if (balanceIdx >= 0 && cols[balanceIdx]) {
+          const bal = parseFloat(cols[balanceIdx].replace(/[^0-9.-]/g, ""));
+          if (!isNaN(bal)) balance = bal;
+        } else if (cols[5]) {
+          const bal = parseFloat(cols[5].replace(/[^0-9.-]/g, ""));
+          if (!isNaN(bal)) balance = bal;
+        }
       } else {
         // Generic: Date, Description, Amount, Balance
         date = cols[0];
         description = cols[1];
         amount = parseFloat(cols[2]);
-        balance = cols[3] ? parseFloat(cols[3]) : null;
+        if (cols[3]) {
+          const bal = parseFloat(cols[3].replace(/[^0-9.-]/g, ""));
+          if (!isNaN(bal)) balance = bal;
+        }
       }
 
       if (isNaN(amount)) continue;
@@ -66,13 +89,12 @@ export const CSVUploader = ({ onUploadComplete }: CSVUploaderProps) => {
     setResult(null);
     try {
       const text = await file.text();
-      const entries = parseChaseCSV(text);
+      const entries = parseCSV(text);
       if (entries.length === 0) {
         toast({ title: "No entries found", description: "Check CSV format", variant: "destructive" });
         return;
       }
 
-      // Insert in batches
       const batchSize = 100;
       for (let i = 0; i < entries.length; i += batchSize) {
         const batch = entries.slice(i, i + batchSize);

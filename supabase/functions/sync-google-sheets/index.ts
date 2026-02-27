@@ -236,19 +236,18 @@ serve(async (req) => {
           const headers = values[headerRowIndex];
           console.log('Headers:', headers);
           
-          // Find column indices
-          const productNameIdx = headers.findIndex((h: string) => h && h.trim().toLowerCase().includes("productname"));
-          const categoryIdx = headers.findIndex((h: string) => h && h.trim().toLowerCase().includes("category"));
-          const reorderLevelIdx = headers.findIndex((h: string) => h && h.trim().toLowerCase().replace(/\s+/g, '').includes("reorderlevel"));
-          const unitsIdx = headers.findIndex((h: string) => h && h.trim().toLowerCase().includes("units") && h.trim().toLowerCase().includes("hand"));
-          const casesIdx = headers.findIndex((h: string) => h && h.trim().toLowerCase().includes("cases") && h.trim().toLowerCase().includes("hand"));
-          const stockValueIdx = headers.findIndex((h: string) => h && h.trim().toLowerCase().replace(/\s+/g, '').includes("stockvalue"));
-          const reorderIdx = headers.findIndex((h: string) => {
-            const trimmed = h?.trim().toLowerCase();
-            return trimmed === "reorder" || (trimmed && trimmed.includes("reorder") && !trimmed.includes("level") && !trimmed.includes("date"));
-          });
+          // Find column indices - be flexible with header names
+          const findIdx = (test: (h: string) => boolean) => headers.findIndex((h: string) => h && test(h.trim().toLowerCase()));
+          const productNameIdx = findIdx(h => h.includes("productname") || h.includes("product name") || h === "product");
+          const categoryIdx = findIdx(h => h === "category" || h.includes("category"));
+          const skuIdx = findIdx(h => h === "sku" || h.includes("sku"));
+          const reorderLevelIdx = findIdx(h => h.replace(/\s+/g, '').includes("reorderlevel"));
+          const unitsIdx = findIdx(h => h.includes("units") && h.includes("hand"));
+          const casesIdx = findIdx(h => h.includes("cases") && h.includes("hand"));
+          const stockValueIdx = findIdx(h => h.replace(/\s+/g, '').includes("stockvalue"));
+          const reorderIdx = findIdx(h => h === "reorder" || (h.includes("reorder") && !h.includes("level") && !h.includes("date")));
           
-          console.log('Column indices:', { productNameIdx, categoryIdx, reorderLevelIdx, unitsIdx, casesIdx, stockValueIdx, reorderIdx });
+          console.log('Column indices:', { productNameIdx, categoryIdx, skuIdx, reorderLevelIdx, unitsIdx, casesIdx, stockValueIdx, reorderIdx });
           
           const inventoryItems = [];
           
@@ -266,8 +265,13 @@ serve(async (req) => {
             const stockValue = stockValueIdx >= 0 ? (row[stockValueIdx] || "$0.00") : "$0.00";
             const reorderStatus = reorderIdx >= 0 ? (row[reorderIdx] || "No") : "No";
             
+            const category = categoryIdx >= 0 ? (row[categoryIdx] || "") : "";
+            const sku = skuIdx >= 0 ? (row[skuIdx] || "") : "";
+
             inventoryItems.push({
               product_name: row[productNameIdx] || "",
+              category,
+              sku,
               reorder_level: reorderLevel,
               units_on_hand: unitsOnHand,
               cases_on_hand: casesOnHand,

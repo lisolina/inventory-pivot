@@ -2,17 +2,10 @@ import { useState, useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
-import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from "recharts";
+import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
 
 type TimeRange = "week" | "month" | "quarter" | "year";
-
-interface CashEntry {
-  date: string;
-  type: string;
-  amount: number;
-  balance_after: number | null;
-}
 
 const chartConfig = {
   cashIn: { label: "Cash In", color: "hsl(var(--success))" },
@@ -21,7 +14,7 @@ const chartConfig = {
 };
 
 export const CashFlowChart = () => {
-  const [entries, setEntries] = useState<CashEntry[]>([]);
+  const [entries, setEntries] = useState<any[]>([]);
   const [range, setRange] = useState<TimeRange>("month");
 
   useEffect(() => {
@@ -55,12 +48,26 @@ export const CashFlowChart = () => {
       if (e.balance_after !== null) byDate[day].balance = Number(e.balance_after);
     });
 
-    return Object.entries(byDate).map(([date, vals]) => ({
+    // Forward-fill balance: carry the last known balance forward
+    const result = Object.entries(byDate).map(([date, vals]) => ({
       date,
       cashIn: vals.cashIn,
       cashOut: vals.cashOut,
       balance: vals.balance,
     }));
+
+    let lastBalance: number | null = null;
+    for (const entry of result) {
+      if (entry.balance !== null) {
+        lastBalance = entry.balance;
+      } else if (lastBalance !== null) {
+        // Forward-fill: use last known balance adjusted by today's flows
+        lastBalance = lastBalance + entry.cashIn - entry.cashOut;
+        entry.balance = lastBalance;
+      }
+    }
+
+    return result;
   }, [entries]);
 
   const ranges: { key: TimeRange; label: string }[] = [
@@ -91,7 +98,7 @@ export const CashFlowChart = () => {
       <CardContent>
         {chartData.length === 0 ? (
           <p className="text-center text-muted-foreground py-8 text-sm">
-            No cash flow data yet. Add entries in the Money tab.
+            No cash flow data yet. Upload a bank statement CSV in the Money tab.
           </p>
         ) : (
           <ChartContainer config={chartConfig} className="h-[250px] w-full">
@@ -102,7 +109,7 @@ export const CashFlowChart = () => {
               <ChartTooltip content={<ChartTooltipContent />} />
               <Bar dataKey="cashIn" fill="var(--color-cashIn)" radius={[2, 2, 0, 0]} barSize={16} />
               <Bar dataKey="cashOut" fill="var(--color-cashOut)" radius={[2, 2, 0, 0]} barSize={16} />
-              <Line type="monotone" dataKey="balance" stroke="var(--color-balance)" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="balance" stroke="var(--color-balance)" strokeWidth={2} dot={false} connectNulls />
             </ComposedChart>
           </ChartContainer>
         )}
