@@ -1,76 +1,74 @@
 
 
-## Fix Plan: Invoice Parsing, Inventory Display, PO Dates, Cash Position, and File Viewing
+## Plan: Sortable Tables, Cash Balance Fix, Delete Actions, Task Expand, Alerts Management, Navigation Links, and Brand Colors
 
-### Issues Found
+### 1. Sortable table headers (all tables)
+- Create a reusable `SortableTableHead` component that renders clickable headers with sort arrows
+- Apply to: **InventoryTab** (finished, packaging, shipping), **MoneyTab** (cash history, receivables, expenses), **OrdersTab** (open/fulfilled orders)
+- Sort logic: alphabetical for text columns, numeric for number columns, chronological for dates
 
-**1. Invoice parsing returns $0 and wrong data**
-- `InvoiceDropZone` reuses the `parse-po-document` edge function, which has a PO-specific prompt. It calculates amount as `quantity * unitPrice`, but invoices don't have those fields. Need a dedicated invoice parsing prompt that extracts vendor, invoice number, total amount, and due date directly.
+### 2. Fix cash position to account for pending transactions
+- In `MoneyTab.fetchAll` and `DashboardTab.fetchMetrics`: after finding the last entry with `balance_after`, scan for any entries with a later date that have `balance_after = null`, and apply their in/out amounts to compute the true current balance
+- Formula: `actualBalance = lastReportedBalance + sum(later "in" amounts) - sum(later "out" amounts)`
 
-**2. Inventory tab shows wrong data / missing products**
-- Data IS in the database (e.g., "Spaghetti Dust Aglio" with 4,188 units, 349 cases). The frontend `FINISHED_PRODUCTS` filter array has "SpaghettiDust Aglio" (no space) but the DB stores "Spaghetti Dust Aglio" (with space).
-- No `category` column exists on `inventory_items` — the sheet has a category column but it's not being stored. Need to add a `category` column and use it for tab filtering instead of hardcoded product name lists.
+### 3. Delete orders from Open Orders
+- Add a trash icon button to each row in the order table in `OrdersTab`
+- Implement `handleDeleteOrder` that deletes from `orders` + associated `order_items`
 
-**3. PO upload sets wrong date**
-- The `parse-po-document` edge function parses `poDate` correctly but the order insert doesn't use it — `order_date` defaults to `now()`. Need to pass `parsedResult.poDate` as `order_date`.
+### 4. Fix document links for POs/invoices
+- The `file_url` is being stored but the link may not resolve. Check the storage bucket URL construction. The `document-uploads` bucket is public, so URLs should work. Debug: ensure the `file_url` field is actually populated on the order record (the `update` call uses `as any` cast which may not match types). Fix the types usage.
 
-**4. No file viewing for uploaded POs/invoices**
-- Files are sent as base64 for AI parsing but never stored. Need to upload files to a storage bucket and store the file path on the order/invoice record so users can click to view the original document.
+### 5. Fix PO date off-by-one
+- The `parse-po-document` edge function likely stores the date as UTC midnight causing timezone shift. Fix by parsing the date string and ensuring it's stored without timezone offset, or adjusting the display to use UTC.
 
-**5. Cash Position tile shows "—"**
-- CSV import works but `balance_after` is NULL on most entries. The Chase CSV parser correctly reads the Balance column, but the data shows NULL. The `cashBalance` state only updates when `balance_after` is not null. Need to compute running balance from cash entries if no explicit balance exists.
+### 6. PO upload historical record
+- Currently `uploadedPOs` state resets on component mount. Persist parsed PO results by storing them in the order record (the data is already there via `order_items`). Show a "Recent Uploads" section that queries orders with `source = 'distributor'` and `file_url IS NOT NULL`.
 
-**6. Dashboard "Cash on Hand" also shows "—"**
-- Same root cause — pulls from `cash_entries.balance_after` which is null. Will be fixed by the same running balance logic.
+### 7. Delete invoices in Money tab
+- Add trash icon next to "Mark Paid" button in the invoices table
+- Implement `handleDeleteInvoice`
 
----
+### 8. Alerts & Notifications — check/delete actions
+- Currently alerts are computed in-memory from invoice due dates. To support check/dismiss, store dismissed alert IDs in local state (or a `dismissed_alerts` table). Simpler approach: add check and delete icon buttons that remove alerts from the displayed list using local state with localStorage persistence.
 
-### Implementation Steps
+### 9. Tasks — expandable title/description
+- Remove `truncate` class from task title/description in `TasksTile`
+- Wrap task content in a clickable area that expands to show full description
+- Or use a dialog/popover on click to show full task details
 
-**Step 1: Add `category` and `sku` columns to `inventory_items` + `file_url` to `orders` and `invoices`**
-- Migration: `ALTER TABLE inventory_items ADD COLUMN category text, ADD COLUMN sku text`
-- Migration: `ALTER TABLE orders ADD COLUMN file_url text`
-- Migration: `ALTER TABLE invoices ADD COLUMN file_url text`
-- Create storage bucket `document-uploads` (public) for viewing uploaded files
+### 10. Email POs — delete action + hide converted
+- Add a delete button to `ForwardedEmail` component
+- Split email POs view into "Pending" (default) and "History" (converted/processed) with a toggle
+- Need DELETE RLS policy on `forwarded_emails` table
 
-**Step 2: Fix `sync-google-sheets` to store category and SKU**
-- Find the category and SKU column indices from headers
-- Store them alongside existing fields
-- Frontend `InventoryTab.tsx`: filter by `category` column (values "Pasta"/"Dust" for finished products, "Packaging" for packaging) instead of hardcoded product name arrays
-- Frontend `DashboardTab.tsx`: update inventory snapshot filter similarly
+### 11. Dashboard metric tiles — clickable navigation
+- Wrap "Cash on Hand" tile with `onClick` that switches to Money tab
+- Wrap "Open Orders" tile with `onClick` that switches to Orders tab
+- Wrap "This Week's Revenue" tile with `onClick` that switches to Money tab
+- Pass a `setActiveTab` callback from Index.tsx to DashboardTab
 
-**Step 3: Fix invoice parsing**
-- Create a new edge function `parse-invoice-document` (or add an `invoiceMode` flag to `parse-po-document`) with an invoice-specific AI prompt that extracts: vendor name, invoice number, total amount, due date, description
-- Update `InvoiceDropZone` to use the invoice-specific parsing
-- Upload the file to storage and store `file_url` on the invoice record
+### 12. Add Cash Flow Chart to Money tab
+- Import and render `CashFlowChart` component in `MoneyTab` (after the cash position cards)
 
-**Step 4: Fix PO upload — date + file storage**
-- In `parse-po-document`, set `order_date: parsedResult.poDate` when inserting the order
-- Upload the file to `document-uploads` bucket and store the URL on the order's `file_url`
-- Update `POUploader` to send file for storage
+### 13. Brand color update — red header + cream background
+- Update CSS variables in `src/index.css`:
+  - `--primary` from navy (220 46% 20%) to L'Isolina red (need to determine exact red — will use a rich Italian red ~HSL 0 70% 40%)
+  - `--background` to cream (~HSL 40 30% 96% — already close, may need slight adjustment)
+- The header uses `bg-primary`, so changing `--primary` will update it automatically
 
-**Step 5: Add document view icons to order and invoice tables**
-- In `OrdersTab` order table: add a file icon button that opens the stored PDF in a dialog/new tab
-- In `MoneyTab` invoice table: same file icon for viewing uploaded invoices
+### Database migration needed
+- Add DELETE policy on `forwarded_emails` for authenticated users
 
-**Step 6: Fix cash position from CSV data**
-- The Chase CSV balance column IS being parsed but stored as NULL (likely a parsing issue with the CSV format). Debug and fix the CSV parser to correctly capture the Balance column.
-- As fallback: compute cash position as the `balance_after` from the most recent entry that has one, or sum all in/out transactions.
-- Update `DashboardTab` cash on hand to use the same logic.
-
-**Step 7: Fix `CashFlowChart` to show balance line**
-- Currently balance is null for most entries. After fixing CSV import, the chart will auto-populate. Also add forward-fill logic so the balance line is continuous even on days with no explicit balance value.
-
-### Files to Create/Edit
-- **Migration**: add `category`, `sku` to `inventory_items`; `file_url` to `orders` and `invoices`; `document-uploads` bucket
-- `supabase/functions/sync-google-sheets/index.ts` — store category + SKU columns
-- `supabase/functions/parse-po-document/index.ts` — set order_date from poDate, upload file to storage
-- `src/components/InvoiceDropZone.tsx` — dedicated invoice AI prompt, upload file to storage, store file_url
-- `src/components/POUploader.tsx` — pass file for storage upload
-- `src/components/CSVUploader.tsx` — fix balance_after parsing
-- `src/components/tabs/InventoryTab.tsx` — filter by category column
-- `src/components/tabs/DashboardTab.tsx` — fix inventory snapshot filter, fix cash on hand
-- `src/components/tabs/OrdersTab.tsx` — add file view icon
-- `src/components/tabs/MoneyTab.tsx` — add file view icon on invoices, fix cash position display
-- `src/components/CashFlowChart.tsx` — forward-fill balance values
+### Files to edit
+- **Create**: `src/components/SortableTable.tsx` (reusable sort hook/component)
+- **Edit**: `src/index.css` — brand colors
+- **Edit**: `src/pages/Index.tsx` — pass tab setter to DashboardTab
+- **Edit**: `src/components/tabs/DashboardTab.tsx` — clickable tiles, fix cash balance logic
+- **Edit**: `src/components/tabs/InventoryTab.tsx` — sortable headers
+- **Edit**: `src/components/tabs/OrdersTab.tsx` — delete order, sortable headers, fix date display, historical PO uploads
+- **Edit**: `src/components/tabs/MoneyTab.tsx` — delete invoice, sortable headers, cash balance fix, add CashFlowChart
+- **Edit**: `src/components/TasksTile.tsx` — expandable task details
+- **Edit**: `src/components/ForwardedEmail.tsx` — delete action, pending/history split
+- **Edit**: `supabase/functions/parse-po-document/index.ts` — fix date timezone
+- **Migration**: DELETE policy on `forwarded_emails`
 
