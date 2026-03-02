@@ -6,9 +6,10 @@ import { useToast } from "@/hooks/use-toast";
 
 interface InvoiceDropZoneProps {
   onInvoiceCreated: () => void;
+  direction?: "receivable" | "payable";
 }
 
-export const InvoiceDropZone = ({ onInvoiceCreated }: InvoiceDropZoneProps) => {
+export const InvoiceDropZone = ({ onInvoiceCreated, direction = "receivable" }: InvoiceDropZoneProps) => {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -62,6 +63,7 @@ export const InvoiceDropZone = ({ onInvoiceCreated }: InvoiceDropZoneProps) => {
           due_date: dueDate,
           invoice_number: invoiceNumber,
           file_url: fileUrl,
+          direction,
         } as any);
         if (invErr) throw invErr;
 
