@@ -464,6 +464,92 @@ export type Database = {
           },
         ]
       }
+      launch_milestones: {
+        Row: {
+          cash_impact: number | null
+          category: string
+          created_at: string
+          deadline: string | null
+          id: string
+          lead_time_days: number | null
+          notes: string | null
+          payment_terms: string | null
+          product_id: string | null
+          status: string
+          title: string
+        }
+        Insert: {
+          cash_impact?: number | null
+          category?: string
+          created_at?: string
+          deadline?: string | null
+          id?: string
+          lead_time_days?: number | null
+          notes?: string | null
+          payment_terms?: string | null
+          product_id?: string | null
+          status?: string
+          title: string
+        }
+        Update: {
+          cash_impact?: number | null
+          category?: string
+          created_at?: string
+          deadline?: string | null
+          id?: string
+          lead_time_days?: number | null
+          notes?: string | null
+          payment_terms?: string | null
+          product_id?: string | null
+          status?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "launch_milestones_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "launch_products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      launch_products: {
+        Row: {
+          created_at: string
+          id: string
+          ingredient_cost: number | null
+          name: string
+          notes: string | null
+          production_cost: number | null
+          target_launch_date: string | null
+          tube_cost: number | null
+          unit_price: number | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          ingredient_cost?: number | null
+          name: string
+          notes?: string | null
+          production_cost?: number | null
+          target_launch_date?: string | null
+          tube_cost?: number | null
+          unit_price?: number | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          ingredient_cost?: number | null
+          name?: string
+          notes?: string | null
+          production_cost?: number | null
+          target_launch_date?: string | null
+          tube_cost?: number | null
+          unit_price?: number | null
+        }
+        Relationships: []
+      }
       order_items: {
         Row: {
           created_at: string
@@ -659,6 +745,39 @@ export type Database = {
           refresh_token?: string
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      recurring_expenses: {
+        Row: {
+          active: boolean
+          amount: number
+          category: string
+          created_at: string
+          frequency: string
+          id: string
+          name: string
+          next_due_date: string | null
+        }
+        Insert: {
+          active?: boolean
+          amount: number
+          category?: string
+          created_at?: string
+          frequency?: string
+          id?: string
+          name: string
+          next_due_date?: string | null
+        }
+        Update: {
+          active?: boolean
+          amount?: number
+          category?: string
+          created_at?: string
+          frequency?: string
+          id?: string
+          name?: string
+          next_due_date?: string | null
         }
         Relationships: []
       }

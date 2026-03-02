@@ -14,6 +14,9 @@ import { useToast } from "@/hooks/use-toast";
 import { CSVUploader } from "@/components/CSVUploader";
 import { InvoiceDropZone } from "@/components/InvoiceDropZone";
 import { CashFlowChart } from "@/components/CashFlowChart";
+import { CashFlowProjection } from "@/components/CashFlowProjection";
+import { NLExpenseInput } from "@/components/NLExpenseInput";
+import { RecurringExpenses } from "@/components/RecurringExpenses";
 import { SortableTableHead, useSort, sortData } from "@/components/SortableTableHead";
 
 type TimeRange = "week" | "month" | "quarter" | "year";
@@ -314,6 +317,15 @@ export const MoneyTab = () => {
 
       {/* Cash Flow Chart */}
       <CashFlowChart />
+
+      {/* Cash Flow Projection */}
+      <CashFlowProjection />
+
+      {/* NL Expense Input */}
+      <NLExpenseInput onExpenseCreated={fetchAll} />
+
+      {/* Recurring Expenses */}
+      <RecurringExpenses />
 
       <Tabs defaultValue="receivables">
         <TabsList>
