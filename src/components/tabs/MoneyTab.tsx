@@ -91,8 +91,14 @@ export const MoneyTab = () => {
   const checkQbStatus = async () => {
     try {
       const { data, error } = await supabase.functions.invoke("quickbooks-api", { body: { endpoint: "status" } });
-      setQbStatus((!error && data?.connected) ? "connected" : "disconnected");
-    } catch { setQbStatus("disconnected"); }
+      if (!error && data?.connected) {
+        setQbStatus("connected");
+      } else {
+        setQbStatus("disconnected");
+      }
+    } catch {
+      setQbStatus("disconnected");
+    }
   };
 
   const handleConnectQB = async () => {
