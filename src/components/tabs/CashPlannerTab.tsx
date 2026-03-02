@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from "react";
 import {
   ComposedChart, BarChart, Bar, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, ReferenceLine,
+  Tooltip, ResponsiveContainer, ReferenceLine, Customized,
 } from "recharts";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { AlertTriangle, TrendingUp, Package, DollarSign, ShieldCheck, Save, RotateCcw, ChevronLeft, ChevronRight, CalendarDays, Clock, Truck, Factory, FlaskConical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
-import { addWeeks, format, differenceInWeeks } from "date-fns";
+import { addWeeks, addDays, format, differenceInWeeks, startOfMonth, getDaysInMonth, getDay } from "date-fns";
 
 // ── Epoch: weeks start on Sunday Dec 28, 2025 ──────────────────────
 const EPOCH = new Date(2025, 11, 28); // Sunday
@@ -36,6 +36,25 @@ function currentWeekIndex(): number {
 function weekLabel(weekIndex: number): string {
   return format(weekToDate(weekIndex), "MMM d");
 }
+function dateToWeekIndex(dateStr: string): number {
+  const d = new Date(dateStr + "T00:00:00");
+  return differenceInWeeks(d, EPOCH);
+}
+/** Does the week starting at weekIndex contain the 1st of any month? */
+function weekContainsFirstOfMonth(weekIndex: number): boolean {
+  const weekStart = weekToDate(weekIndex);
+  for (let d = 0; d < 7; d++) {
+    const day = addDays(weekStart, d);
+    if (day.getDate() === 1) return true;
+  }
+  return false;
+}
+/** Get the number of weeks in the month that weekIndex falls in */
+function weeksInMonthForWeek(weekIndex: number): number {
+  const date = weekToDate(weekIndex);
+  const daysInMo = getDaysInMonth(date);
+  return daysInMo / 7;
+}
 
 // ── Default model inputs ────────────────────────────────────────────
 const defaultInputs = {
@@ -52,7 +71,8 @@ const defaultInputs = {
   fairePayout: 0,
   wbcPaymentDays: 30,
   dtcPayout: 2,
-  monthlyOpex: 10000,
+  monthlyOpex: 7500,
+  monthlySalary: 2500,
   wayflierBiweekly: 1155,
   inventoryOnHand: 8000,
   tubeLeadWeeks: 5,
@@ -63,14 +83,18 @@ const defaultInputs = {
   tubeOrderSize: 30000,
   tubeCostPer: 0.31,
   ingredientCostPerUnit: 0.35,
-  productionCostPerUnit: 0.35,
+  productionCostPerUnit: 0.75,
   freightPerRun: 350,
   tubesOnHand: 25000,
   // Phase 1 payment inputs
-  tubePaymentPct1: 25,        // % paid upfront (deposit)
-  tubePaymentPct2: 25,        // % paid when printing completes
-  ingredientLeadWeeks: 2,     // weeks before production to order ingredients
-  aesNetDays: 30,             // Net terms for AES production invoice
+  tubePaymentPct1: 25,
+  tubePaymentPct2: 25,
+  ingredientLeadWeeks: 2,
+  aesNetDays: 30,
+  // Funding date overrides (YYYY-MM-DD or empty for auto)
+  ingredientFundingDate: "2026-04-15",
+  productionFundingDate: "2026-05-31",
+  freightFundingDate: "",
 };
 
 const STORAGE_KEY = "lisolina-planner-inputs";
@@ -104,6 +128,13 @@ interface CascadeAction {
   cycleId: number;
   triggerWeek: number;
   events: { weekIndex: number; absWeek: number; dateLabel: string; description: string; amount: number; type: string }[];
+}
+
+interface ProductionTriggerAnnotation {
+  relWeek: number;
+  absWeek: number;
+  label: string;
+  runSize: number;
 }
 
 function loadSavedInputs(): Inputs {
@@ -143,6 +174,24 @@ function InputField({
         />
         {suffix && <span className="text-[11px] text-muted-foreground whitespace-nowrap">{suffix}</span>}
       </div>
+    </div>
+  );
+}
+
+function DateInputField({
+  label, value, onChange,
+}: {
+  label: string; value: string; onChange: (v: string) => void;
+}) {
+  return (
+    <div className="mb-2.5">
+      <Label className="text-[11px] font-semibold tracking-wide text-muted-foreground">{label}</Label>
+      <Input
+        type="date"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-8 text-xs font-mono font-semibold mt-1"
+      />
     </div>
   );
 }
@@ -212,6 +261,46 @@ const C_NAVY = "hsl(220, 39%, 20%)";
 const C_BLUE = "hsl(199, 89%, 48%)";
 const C_GOLD = "hsl(43, 52%, 54%)";
 const C_ORANGE = "hsl(38, 92%, 50%)";
+const C_PURPLE = "hsl(280, 60%, 55%)";
+
+// ── Production run arrow annotations for inventory chart ────────────
+function ProductionRunArrows({ xAxisMap, yAxisMap, annotations }: { xAxisMap: any; yAxisMap: any; annotations: ProductionTriggerAnnotation[] }) {
+  if (!xAxisMap || !yAxisMap || !annotations.length) return null;
+  const xAxis = Object.values(xAxisMap)[0] as any;
+  const yAxis = Object.values(yAxisMap)[0] as any;
+  if (!xAxis || !yAxis) return null;
+
+  return (
+    <g>
+      {annotations.map((ann, i) => {
+        const xVal = xAxis.scale(ann.label);
+        if (xVal === undefined || isNaN(xVal)) return null;
+        const xPos = xVal + (xAxis.bandSize ? xAxis.bandSize / 2 : 0);
+        const yTop = yAxis.y || 5;
+        const arrowSize = 6;
+        return (
+          <g key={i}>
+            {/* Arrow line */}
+            <line x1={xPos} y1={yTop + 2} x2={xPos} y2={yTop + 22} stroke={C_PURPLE} strokeWidth={2} />
+            {/* Arrow head */}
+            <polygon
+              points={`${xPos},${yTop + 22} ${xPos - arrowSize},${yTop + 14} ${xPos + arrowSize},${yTop + 14}`}
+              fill={C_PURPLE}
+            />
+            {/* Label */}
+            <text x={xPos} y={yTop} textAnchor="middle" fontSize={9} fontWeight="bold" fill={C_PURPLE}>
+              🏭
+            </text>
+            {/* Invisible hover rect for tooltip (Recharts doesn't support custom tooltips on Customized easily, so we use title) */}
+            <rect x={xPos - 15} y={yTop} width={30} height={25} fill="transparent" style={{ cursor: "pointer" }}>
+              <title>Production run forecast — {ann.runSize.toLocaleString()} units</title>
+            </rect>
+          </g>
+        );
+      })}
+    </g>
+  );
+}
 
 // ── Core planner model (16-week simulation) ─────────────────────────
 function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<string, boolean>) {
@@ -221,11 +310,12 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
       cashOnHand, weeklyVelocity, faireShare, wbcShare, dtcShare,
       faireRevPerUnit, wbcRevPerUnit, dtcRevPerUnit, cogsPerUnit,
       dtcFulfillmentPerUnit, wbcPaymentDays,
-      monthlyOpex, wayflierBiweekly, inventoryOnHand,
+      monthlyOpex, monthlySalary, wayflierBiweekly, inventoryOnHand,
       tubeLeadWeeks, productionLeadWeeks, freightToSabahWeeks,
       minWeeksStock, productionRunSize, tubeOrderSize, tubeCostPer,
       ingredientCostPerUnit, productionCostPerUnit, freightPerRun, tubesOnHand,
       tubePaymentPct1, tubePaymentPct2, ingredientLeadWeeks, aesNetDays,
+      ingredientFundingDate, productionFundingDate, freightFundingDate,
     } = inputs;
 
     const faireUnits = Math.round(weeklyVelocity * faireShare / 100);
@@ -236,8 +326,7 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
     const wbcContrib = wbcRevPerUnit - cogsPerUnit;
     const dtcContrib = dtcRevPerUnit - cogsPerUnit - dtcFulfillmentPerUnit;
 
-    const weeklyOpex = monthlyOpex / 4.33;
-    const avgWeeklyWayflier = wayflierBiweekly / 2; // for display math only
+    const avgWeeklyWayflier = wayflierBiweekly / 2;
 
     const totalLeadWeeks = tubeLeadWeeks + productionLeadWeeks + freightToSabahWeeks;
     const weeksOfStock = inventoryOnHand / weeklyVelocity;
@@ -245,15 +334,19 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
     const tubePct1 = tubePaymentPct1 / 100;
     const tubePct2 = tubePaymentPct2 / 100;
     const tubePct3 = Math.max(0, 1 - tubePct1 - tubePct2);
-    const tubeMidpointWeek = Math.round(tubeLeadWeeks / 2); // when printing completes
+    const tubeMidpointWeek = Math.round(tubeLeadWeeks / 2);
     const aesNetWeeks = Math.ceil(aesNetDays / 7);
 
-    // ── Phase 1: Deferred payment ledger ──────────────────────────
-    // Each entry: { week, amount, label, category, expenseId, cycleId }
+    // Funding date overrides → absolute week indices
+    const ingredientFundingAbsWeek = ingredientFundingDate ? dateToWeekIndex(ingredientFundingDate) : -1;
+    const productionFundingAbsWeek = productionFundingDate ? dateToWeekIndex(productionFundingDate) : -1;
+    const freightFundingAbsWeek = freightFundingDate ? dateToWeekIndex(freightFundingDate) : -1;
+
     const deferredPayments: { week: number; amount: number; label: string; category: string; expenseId: string; cycleId: number }[] = [];
     const scheduledExpenses: ScheduledExpense[] = [];
     const pipelineItems: PipelineItem[] = [];
     const cascadeActions: CascadeAction[] = [];
+    const productionAnnotations: ProductionTriggerAnnotation[] = [];
 
     let cashBalance = cashOnHand;
     let inventory = inventoryOnHand;
@@ -263,13 +356,11 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
     const weeklyData: any[] = [];
     const actions: { week: number; type: string; text: string; cost: number; sanityNote?: string }[] = [];
 
-    // Dynamic reordering: cooldown-based
     let nextEligibleProductionWeek = 0;
     let nextEligibleTubeOrderWeek = 0;
     let cycleCounter = 0;
 
-    // ── First pass: identify all triggers and schedule deferred payments ──
-    // We simulate inventory/tube drawdown to find trigger points
+    // ── First pass: identify triggers ──
     let simInventory = inventoryOnHand;
     let simTubes = tubesOnHand;
     const triggers: { week: number; type: "production" | "tube_order"; cycleId: number }[] = [];
@@ -281,13 +372,11 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
       const unitsSold = Math.min(weeklyVelocity, simInventory);
       simInventory -= unitsSold;
 
-      // Check arrivals from scheduled production
       productionScheduled.forEach((ps) => {
         if (ps.arriveWeek === w && ps.type === "tubes") simTubes += ps.qty;
         if (ps.arriveWeek === w && ps.type === "finished") simInventory += ps.qty;
       });
 
-      // Tube reorder check
       const tubeBuffer = weeklyVelocity * (tubeLeadWeeks + 4);
       if (w >= simNextTube && simTubes < tubeBuffer) {
         simCycle++;
@@ -296,7 +385,6 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
         productionScheduled.push({ arriveWeek: w + tubeLeadWeeks, type: "tubes", qty: tubeOrderSize });
       }
 
-      // Production reorder check
       const bufferThreshold = weeklyVelocity * minWeeksStock;
       if (w >= simNextProd && simInventory <= bufferThreshold) {
         const thisCycle = simCycle > 0 ? simCycle : ++simCycle;
@@ -304,13 +392,20 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
         simNextProd = w + totalLeadWeeks;
         simTubes -= productionRunSize;
         productionScheduled.push({ arriveWeek: w + productionLeadWeeks + freightToSabahWeeks, type: "finished", qty: productionRunSize });
+
+        // Add annotation for inventory chart
+        productionAnnotations.push({
+          relWeek: w,
+          absWeek: startWeekOffset + w,
+          label: weekLabel(startWeekOffset + w),
+          runSize: productionRunSize,
+        });
       }
     }
 
-    // Clear and rebuild
     productionScheduled.length = 0;
 
-    // Build scheduled expenses and deferred payments from triggers
+    // Build scheduled expenses from triggers
     for (const trigger of triggers) {
       const w = trigger.week;
       const absW = startWeekOffset + w;
@@ -328,7 +423,6 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
         const id2 = `tube-t2-c${cid}-w${midWeek}`;
         const id3 = `tube-t3-c${cid}-w${deliveryWeek}`;
 
-        // Tranche 1: upfront deposit
         scheduledExpenses.push({
           id: id1, weekIndex: w, absWeek: absW, dateLabel: weekLabel(absW),
           description: `Tube deposit (${tubePaymentPct1}%) — ${tubeOrderSize.toLocaleString()} tubes`,
@@ -336,7 +430,6 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
         });
         deferredPayments.push({ week: w, amount: amt1, label: `Tubes Deposit (${tubePaymentPct1}%)`, category: "tubes", expenseId: id1, cycleId: cid });
 
-        // Tranche 2: when printing completes
         if (midWeek < weeks && tubePct2 > 0) {
           scheduledExpenses.push({
             id: id2, weekIndex: midWeek, absWeek: startWeekOffset + midWeek,
@@ -347,7 +440,6 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
           deferredPayments.push({ week: midWeek, amount: amt2, label: `Tubes Printing (${tubePaymentPct2}%)`, category: "tubes", expenseId: id2, cycleId: cid });
         }
 
-        // Tranche 3: balance before shipping
         if (deliveryWeek < weeks && tubePct3 > 0) {
           scheduledExpenses.push({
             id: id3, weekIndex: deliveryWeek, absWeek: startWeekOffset + deliveryWeek,
@@ -360,7 +452,6 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
 
         productionScheduled.push({ arriveWeek: deliveryWeek, type: "tubes", qty: tubeOrderSize });
         pipelineItems.push({ type: "tubes", description: `${tubeOrderSize.toLocaleString()} tubes en route to AES`, startWeek: w, arriveWeek: deliveryWeek, qty: tubeOrderSize, cost: totalCost, cycleId: cid });
-
         actions.push({ week: w, type: "tube_order", text: `Order ${tubeOrderSize.toLocaleString()} tubes — ${fmt(totalCost)} across 3 tranches`, cost: totalCost });
       }
 
@@ -369,71 +460,83 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
         const aesCost = Math.round(productionRunSize * productionCostPerUnit);
         const freightCost = Math.round(freightPerRun);
         const productionStartWeek = w;
-        const ingredientOrderWeek = Math.max(0, productionStartWeek - ingredientLeadWeeks);
+
+        // Use funding date overrides or formula
+        const ingredientOrderWeekRel = ingredientFundingAbsWeek >= 0
+          ? ingredientFundingAbsWeek - startWeekOffset
+          : Math.max(0, productionStartWeek - ingredientLeadWeeks);
+
         const productionCompleteWeek = productionStartWeek + productionLeadWeeks;
-        const aesInvoiceDueWeek = productionCompleteWeek + aesNetWeeks;
+
+        const aesInvoiceDueWeekRel = productionFundingAbsWeek >= 0
+          ? productionFundingAbsWeek - startWeekOffset
+          : productionCompleteWeek + aesNetWeeks;
+
+        const freightWeekRel = freightFundingAbsWeek >= 0
+          ? freightFundingAbsWeek - startWeekOffset
+          : productionCompleteWeek;
+
         const freightArriveWeek = productionCompleteWeek + freightToSabahWeeks;
 
-        const idIng = `ingredients-c${cid}-w${ingredientOrderWeek}`;
-        const idAes = `aes-invoice-c${cid}-w${aesInvoiceDueWeek}`;
-        const idFrt = `freight-c${cid}-w${productionCompleteWeek}`;
+        const idIng = `ingredients-c${cid}-w${ingredientOrderWeekRel}`;
+        const idAes = `aes-invoice-c${cid}-w${aesInvoiceDueWeekRel}`;
+        const idFrt = `freight-c${cid}-w${freightWeekRel}`;
 
-        // Ingredients — order before production
-        if (ingredientOrderWeek < weeks) {
+        if (ingredientOrderWeekRel >= 0 && ingredientOrderWeekRel < weeks) {
+          const ingAbsWeek = startWeekOffset + ingredientOrderWeekRel;
           scheduledExpenses.push({
-            id: idIng, weekIndex: ingredientOrderWeek, absWeek: startWeekOffset + ingredientOrderWeek,
-            dateLabel: weekLabel(startWeekOffset + ingredientOrderWeek),
+            id: idIng, weekIndex: ingredientOrderWeekRel, absWeek: ingAbsWeek,
+            dateLabel: weekLabel(ingAbsWeek),
             description: `Ingredients for ${productionRunSize.toLocaleString()} unit run`,
             amount: ingredientCost, category: "ingredients", approved: approvals[idIng] !== false, cycleId: cid,
           });
-          deferredPayments.push({ week: ingredientOrderWeek, amount: ingredientCost, label: "Ingredients", category: "ingredients", expenseId: idIng, cycleId: cid });
+          deferredPayments.push({ week: ingredientOrderWeekRel, amount: ingredientCost, label: "Ingredients", category: "ingredients", expenseId: idIng, cycleId: cid });
         }
 
-        // AES invoice — Net 30 after production completes
-        if (aesInvoiceDueWeek < weeks) {
+        if (aesInvoiceDueWeekRel >= 0 && aesInvoiceDueWeekRel < weeks) {
+          const aesAbsWeek = startWeekOffset + aesInvoiceDueWeekRel;
           scheduledExpenses.push({
-            id: idAes, weekIndex: aesInvoiceDueWeek, absWeek: startWeekOffset + aesInvoiceDueWeek,
-            dateLabel: weekLabel(startWeekOffset + aesInvoiceDueWeek),
+            id: idAes, weekIndex: aesInvoiceDueWeekRel, absWeek: aesAbsWeek,
+            dateLabel: weekLabel(aesAbsWeek),
             description: `AES production invoice (Net ${aesNetDays}) — ${productionRunSize.toLocaleString()} units`,
             amount: aesCost, category: "production", approved: approvals[idAes] !== false, cycleId: cid,
           });
-          deferredPayments.push({ week: aesInvoiceDueWeek, amount: aesCost, label: `AES Invoice (Net ${aesNetDays})`, category: "production", expenseId: idAes, cycleId: cid });
+          deferredPayments.push({ week: aesInvoiceDueWeekRel, amount: aesCost, label: `AES Invoice (Net ${aesNetDays})`, category: "production", expenseId: idAes, cycleId: cid });
         }
 
-        // Freight — when production completes
-        if (productionCompleteWeek < weeks) {
+        if (freightWeekRel >= 0 && freightWeekRel < weeks) {
+          const frtAbsWeek = startWeekOffset + freightWeekRel;
           scheduledExpenses.push({
-            id: idFrt, weekIndex: productionCompleteWeek, absWeek: startWeekOffset + productionCompleteWeek,
-            dateLabel: weekLabel(startWeekOffset + productionCompleteWeek),
+            id: idFrt, weekIndex: freightWeekRel, absWeek: frtAbsWeek,
+            dateLabel: weekLabel(frtAbsWeek),
             description: `Freight to Sabah — ${productionRunSize.toLocaleString()} units`,
             amount: freightCost, category: "freight", approved: approvals[idFrt] !== false, cycleId: cid,
           });
-          deferredPayments.push({ week: productionCompleteWeek, amount: freightCost, label: "Freight to Sabah", category: "freight", expenseId: idFrt, cycleId: cid });
+          deferredPayments.push({ week: freightWeekRel, amount: freightCost, label: "Freight to Sabah", category: "freight", expenseId: idFrt, cycleId: cid });
         }
 
         productionScheduled.push({ arriveWeek: freightArriveWeek, type: "finished", qty: productionRunSize });
 
-        pipelineItems.push({ type: "ingredients", description: `Ingredients for ${productionRunSize.toLocaleString()} units`, startWeek: ingredientOrderWeek, arriveWeek: productionStartWeek, cost: ingredientCost, cycleId: cid });
+        pipelineItems.push({ type: "ingredients", description: `Ingredients for ${productionRunSize.toLocaleString()} units`, startWeek: ingredientOrderWeekRel, arriveWeek: productionStartWeek, cost: ingredientCost, cycleId: cid });
         pipelineItems.push({ type: "production", description: `AES production — ${productionRunSize.toLocaleString()} units`, startWeek: productionStartWeek, arriveWeek: productionCompleteWeek, qty: productionRunSize, cost: aesCost, cycleId: cid });
-        pipelineItems.push({ type: "freight", description: `Freight to Sabah`, startWeek: productionCompleteWeek, arriveWeek: freightArriveWeek, qty: productionRunSize, cost: freightCost, cycleId: cid });
+        pipelineItems.push({ type: "freight", description: `Freight to Sabah`, startWeek: freightWeekRel, arriveWeek: freightArriveWeek, qty: productionRunSize, cost: freightCost, cycleId: cid });
 
         const totalProdCost = ingredientCost + aesCost + freightCost;
         actions.push({ week: w, type: "production", text: `Production run — ${productionRunSize.toLocaleString()} units — ${fmt(totalProdCost)} across 3 payments`, cost: totalProdCost });
 
-        // Build cascade
         const cascadeEvents = [
-          { weekIndex: ingredientOrderWeek, absWeek: startWeekOffset + ingredientOrderWeek, dateLabel: weekLabel(startWeekOffset + ingredientOrderWeek), description: `Order ingredients`, amount: ingredientCost, type: "ingredients" },
+          { weekIndex: ingredientOrderWeekRel, absWeek: startWeekOffset + ingredientOrderWeekRel, dateLabel: weekLabel(startWeekOffset + ingredientOrderWeekRel), description: `Order ingredients`, amount: ingredientCost, type: "ingredients" },
           { weekIndex: productionStartWeek, absWeek: startWeekOffset + productionStartWeek, dateLabel: weekLabel(startWeekOffset + productionStartWeek), description: `Production starts at AES`, amount: 0, type: "production_start" },
           { weekIndex: productionCompleteWeek, absWeek: startWeekOffset + productionCompleteWeek, dateLabel: weekLabel(startWeekOffset + productionCompleteWeek), description: `Production completes → Freight ships`, amount: freightCost, type: "freight" },
-          { weekIndex: aesInvoiceDueWeek, absWeek: startWeekOffset + aesInvoiceDueWeek, dateLabel: weekLabel(startWeekOffset + aesInvoiceDueWeek), description: `AES invoice due (Net ${aesNetDays})`, amount: aesCost, type: "aes_invoice" },
+          { weekIndex: aesInvoiceDueWeekRel, absWeek: startWeekOffset + aesInvoiceDueWeekRel, dateLabel: weekLabel(startWeekOffset + aesInvoiceDueWeekRel), description: `AES invoice due (Net ${aesNetDays})`, amount: aesCost, type: "aes_invoice" },
           { weekIndex: freightArriveWeek, absWeek: startWeekOffset + freightArriveWeek, dateLabel: weekLabel(startWeekOffset + freightArriveWeek), description: `+${productionRunSize.toLocaleString()} units arrive at Sabah`, amount: 0, type: "arrival" },
-        ].filter(e => e.weekIndex < weeks).sort((a, b) => a.weekIndex - b.weekIndex);
+        ].filter(e => e.weekIndex >= 0 && e.weekIndex < weeks).sort((a, b) => a.weekIndex - b.weekIndex);
 
         cascadeActions.push({ cycleId: cid, triggerWeek: w, events: cascadeEvents });
       }
     }
 
-    // ── Inject known fixed expenses ──────────────────────────────────
+    // ── Inject known fixed expenses ──
     for (const kfe of KNOWN_FIXED_EXPENSES) {
       const relWeek = kfe.dateWeekIdx - startWeekOffset;
       if (relWeek >= 0 && relWeek < weeks) {
@@ -452,7 +555,6 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
     tubes = tubesOnHand;
     cashBalance = cashOnHand;
     const arrivals2: typeof productionScheduled = [];
-    // Re-derive arrivals from triggers
     for (const trigger of triggers) {
       if (trigger.type === "tube_order") {
         arrivals2.push({ arriveWeek: trigger.week + tubeLeadWeeks, type: "tubes", qty: tubeOrderSize });
@@ -494,21 +596,28 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
         if (p.week === w) { weekCashIn += p.amount; cashInBreakdown.push({ label: "Wholesale (delayed)", amount: Math.round(p.amount) }); }
       });
 
-      // Fixed costs
-      const opexAmt = Math.round(weeklyOpex);
-      const dtcFulfill = Math.round(dtcSold * dtcFulfillmentPerUnit);
-      // Wayflyer: actual biweekly draws on real calendar dates
+      // ── OpEx: salary on 1st of month, remaining spread weekly ──
       const thisAbsWeek = startWeekOffset + w;
+      const isSalaryWeek = weekContainsFirstOfMonth(thisAbsWeek);
+      const salaryAmt = isSalaryWeek ? monthlySalary : 0;
+      const weeksInMo = weeksInMonthForWeek(thisAbsWeek);
+      const weeklyOpexSpread = Math.round(monthlyOpex / weeksInMo);
+
+      const dtcFulfill = Math.round(dtcSold * dtcFulfillmentPerUnit);
+
+      // Wayflyer
       const isWayflyerWeek = thisAbsWeek >= WAYFLYER_START_WEEK && (thisAbsWeek - WAYFLYER_START_WEEK) % WAYFLYER_DRAW_INTERVAL_WEEKS === 0;
       const wayAmt = isWayflyerWeek ? wayflierBiweekly : 0;
-      weekCashOut += weeklyOpex + wayAmt + dtcSold * dtcFulfillmentPerUnit;
-      cashOutBreakdown.push({ label: "OpEx", amount: opexAmt });
+
+      weekCashOut += weeklyOpexSpread + salaryAmt + wayAmt + dtcSold * dtcFulfillmentPerUnit;
+      cashOutBreakdown.push({ label: "OpEx (excl. salary)", amount: weeklyOpexSpread });
+      if (isSalaryWeek) cashOutBreakdown.push({ label: "Salary (1st of month)", amount: salaryAmt });
       if (isWayflyerWeek) cashOutBreakdown.push({ label: "Wayflyer Draw", amount: wayflierBiweekly });
       if (dtcFulfill > 0) cashOutBreakdown.push({ label: "DTC Fulfillment", amount: dtcFulfill });
 
       inventory -= unitsSold;
 
-      // Deferred payments that hit this week (only if approved)
+      // Deferred payments
       deferredPayments.forEach((dp) => {
         if (dp.week === w) {
           const expense = scheduledExpenses.find(e => e.id === dp.expenseId);
@@ -516,7 +625,6 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
             weekCashOut += dp.amount;
             cashOutBreakdown.push({ label: dp.label, amount: dp.amount });
           } else {
-            // Show as pending
             cashOutBreakdown.push({ label: `⏸ ${dp.label} (pending)`, amount: 0 });
           }
         }
@@ -528,12 +636,10 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
         if (ps.arriveWeek === w && ps.type === "finished") inventory += ps.qty;
       });
 
-      // Consume tubes for production triggers
       triggers.forEach(t => {
         if (t.type === "production" && t.week === w) tubes -= productionRunSize;
       });
 
-      // Track buffer hit and OOS
       if (bufferHitWeek < 0 && inventory <= weeklyVelocity * minWeeksStock) {
         bufferHitWeek = w;
       }
@@ -561,6 +667,7 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
     const blendedContribPerUnit = weeklyContrib / weeklyVelocity;
     const blendedRevPerUnit = (faireShare / 100 * faireRevPerUnit) + (wbcShare / 100 * wbcRevPerUnit) + (dtcShare / 100 * dtcRevPerUnit);
     const blendedMargin = blendedContribPerUnit / blendedRevPerUnit;
+    const weeklyOpex = (monthlyOpex + monthlySalary) / 4.33; // for display math
 
     return {
       weeklyData, actions, minCash, minCashWeek, stockoutAt,
@@ -568,6 +675,7 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
       weeksOfStock, totalLeadWeeks, weeklyContrib,
       faireUnits, wbcUnits, dtcUnits, weeklyOpex, weeklyWayflier: avgWeeklyWayflier, blendedRevPerUnit,
       scheduledExpenses, pipelineItems, cascadeActions, bufferHitWeek, oosWeek,
+      productionAnnotations,
     };
   }, [inputs, startWeekOffset, approvals]);
 }
@@ -623,6 +731,7 @@ export function CashPlannerTab() {
   const [startWeekOffset, setStartWeekOffset] = useState(() => currentWeekIndex());
   const [approvals, setApprovals] = useState<Record<string, boolean>>(loadSavedApprovals);
   const set = useCallback((key: keyof Inputs) => (val: number) => setInputs((p) => ({ ...p, [key]: val })), []);
+  const setStr = useCallback((key: keyof Inputs) => (val: string) => setInputs((p) => ({ ...p, [key]: val })), []);
   const model = useModel(inputs, startWeekOffset, approvals);
 
   const goBack = () => setStartWeekOffset((o) => o - 4);
@@ -681,7 +790,8 @@ export function CashPlannerTab() {
         <InputField label="DTC Fulfillment/Unit" value={inputs.dtcFulfillmentPerUnit} onChange={set("dtcFulfillmentPerUnit")} prefix="$" step={0.05} />
 
         <SidebarSection>Fixed Costs</SidebarSection>
-        <InputField label="Monthly OpEx" value={inputs.monthlyOpex} onChange={set("monthlyOpex")} prefix="$" step={500} />
+        <InputField label="Monthly OpEx (excl. salary)" value={inputs.monthlyOpex} onChange={set("monthlyOpex")} prefix="$" step={500} />
+        <InputField label="Monthly Salary" value={inputs.monthlySalary} onChange={set("monthlySalary")} prefix="$" step={100} />
         <InputField label="Wayflyer Draw (every 2wk)" value={inputs.wayflierBiweekly} onChange={set("wayflierBiweekly")} prefix="$" step={50} />
 
         <SidebarSection>Lead Times</SidebarSection>
@@ -698,9 +808,22 @@ export function CashPlannerTab() {
 
         <SidebarSection>Production</SidebarSection>
         <InputField label="Run Size" value={inputs.productionRunSize} onChange={set("productionRunSize")} suffix="units" step={500} />
-        <InputField label="Ingredient Cost/Unit" value={inputs.ingredientCostPerUnit} onChange={set("ingredientCostPerUnit")} prefix="$" step={0.05} />
-        <InputField label="Production Cost/Unit" value={inputs.productionCostPerUnit} onChange={set("productionCostPerUnit")} prefix="$" step={0.05} />
-        <InputField label="Freight per Run" value={inputs.freightPerRun} onChange={set("freightPerRun")} prefix="$" step={50} />
+
+        <div className="grid grid-cols-2 gap-2">
+          <InputField label="Ingredient $/Unit" value={inputs.ingredientCostPerUnit} onChange={set("ingredientCostPerUnit")} prefix="$" step={0.05} />
+          <DateInputField label="Ingredient Funding Date" value={inputs.ingredientFundingDate} onChange={setStr("ingredientFundingDate")} />
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <InputField label="Production $/Unit" value={inputs.productionCostPerUnit} onChange={set("productionCostPerUnit")} prefix="$" step={0.05} />
+          <DateInputField label="Production Funding Date" value={inputs.productionFundingDate} onChange={setStr("productionFundingDate")} />
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <InputField label="Freight per Run" value={inputs.freightPerRun} onChange={set("freightPerRun")} prefix="$" step={50} />
+          <DateInputField label="Freight Funding Date" value={inputs.freightFundingDate} onChange={setStr("freightFundingDate")} />
+        </div>
+
         <InputField label="Tube Order Size" value={inputs.tubeOrderSize} onChange={set("tubeOrderSize")} suffix="tubes" step={1000} />
         <InputField label="Tube Cost Each" value={inputs.tubeCostPer} onChange={set("tubeCostPer")} prefix="$" step={0.01} />
       </ScrollArea>
@@ -899,10 +1022,10 @@ export function CashPlannerTab() {
 
           {/* ── Tab 3: Inventory & Timing ────────────────────── */}
           <TabsContent value="inventory">
-            <SectionHeader sub="Finished product and tube stock — buffer hit annotated">INVENTORY RUNWAY</SectionHeader>
+            <SectionHeader sub="Finished product and tube stock — production run arrows mark forecast dates">INVENTORY RUNWAY</SectionHeader>
             <Card><CardContent className="pt-4">
-              <ResponsiveContainer width="100%" height={280}>
-                <ComposedChart data={model.weeklyData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+              <ResponsiveContainer width="100%" height={300}>
+                <ComposedChart data={model.weeklyData} margin={{ top: 30, right: 20, left: 10, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
                   <XAxis dataKey="label" tick={{ fontSize: 11 }} />
                   <YAxis yAxisId="left" tick={{ fontSize: 11 }} label={{ value: "Finished Units", angle: -90, position: "insideLeft", style: { fontSize: 10 } }} />
@@ -912,8 +1035,21 @@ export function CashPlannerTab() {
                   <ReferenceLine yAxisId="left" y={0} stroke={C_RED} strokeWidth={2} />
                   <Line yAxisId="left" dataKey="inventory" name="Finished Product" stroke={C_NAVY} strokeWidth={2.5} dot={{ r: 3 }} />
                   <Line yAxisId="right" dataKey="tubes" name="Tubes at AES" stroke={C_GOLD} strokeWidth={2} dot={{ r: 2 }} strokeDasharray="5 3" />
+                  <Customized component={(props: any) => (
+                    <ProductionRunArrows
+                      xAxisMap={props.xAxisMap}
+                      yAxisMap={props.yAxisMap}
+                      annotations={model.productionAnnotations}
+                    />
+                  )} />
                 </ComposedChart>
               </ResponsiveContainer>
+              {model.productionAnnotations.length > 0 && (
+                <div className="flex items-center gap-2 mt-2 text-[11px] text-muted-foreground">
+                  <span style={{ color: C_PURPLE }}>🏭</span>
+                  <span>= Production run forecast date (hover for details)</span>
+                </div>
+              )}
             </CardContent></Card>
 
             {/* Buffer hit annotation */}
@@ -1052,7 +1188,6 @@ export function CashPlannerTab() {
 
           {/* ── Tab 4: Action Plan ───────────────────────────── */}
           <TabsContent value="actions">
-            {/* Expense Forecast with Approvals */}
             {model.scheduledExpenses.length > 0 && (
               <>
                 <SectionHeader sub="Approve or defer each expense — only approved items flow into the cash simulation">EXPENSE FORECAST</SectionHeader>
@@ -1109,7 +1244,6 @@ export function CashPlannerTab() {
               </>
             )}
 
-            {/* Cascade view */}
             {model.cascadeActions.length > 0 && (
               <>
                 <SectionHeader sub="Full cascade of events for each production cycle">PRODUCTION CASCADES</SectionHeader>
