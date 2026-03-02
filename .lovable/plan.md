@@ -1,29 +1,69 @@
 
 
-## Plan: Fix Reset Button + Add Cash Flow Breakdown Notes
+## Phase 1: Realistic Cash Planner — Payment Timing, Dynamic Reordering, Interactive Inventory
 
-### 1. Fix Reset/Refresh button behavior
+All changes in `src/components/tabs/CashPlannerTab.tsx`.
 
-**Problem**: The reset button (`RotateCcw`) currently restores hardcoded defaults and clears localStorage. User wants it to reload the last **saved** inputs instead — essentially "undo unsaved changes."
+### 1. New Sidebar Inputs
 
-**Fix in `CashPlannerTab.tsx`**:
-- Change `handleReset` to reload from `localStorage` (the last saved state) instead of `defaultInputs`
-- If nothing is saved yet, fall back to defaults
-- Update the toast message to "Inputs refreshed from last save"
+Add these fields to the model:
+- **Tube Payment Split** — `tubePaymentPct1` (default 50): % paid upfront, remainder on delivery
+- **Ingredient Lead Weeks** — `ingredientLeadWeeks` (default 2): how many weeks before production starts to order ingredients
+- **AES Net Terms** — `aesNetDays` (default 30): AES production invoice paid Net 30 after run completes
 
-### 2. Add breakdown notes to cash inflows and outflows
+### 2. Timed Payment Logic in Simulation
 
-**In the `useModel` simulation loop**, track per-week breakdown arrays showing what each outflow/inflow is for:
+Replace the current "all costs hit immediately" approach:
 
-Each week's data will include:
-- `cashInBreakdown`: e.g. `[{label: "Faire Revenue", amount: 3645}, {label: "DTC Revenue", amount: 325}]`
-- `cashOutBreakdown`: e.g. `[{label: "OpEx", amount: 2309}, {label: "Wayflyer", amount: 416}, {label: "DTC Fulfillment", amount: 24}, {label: "Tube Order (30k)", amount: 9300}]`
+**Tubes**: Split into two cash events — `tubePaymentPct1`% on order week, remainder on delivery week (order week + `tubeLeadWeeks`).
 
-**Display**: Add a custom Recharts tooltip on the Cash Forecast chart that shows the itemized breakdown instead of just totals. Also add a small weekly breakdown table below the Net Cash Flow chart showing inflow/outflow line items for the selected or hovered week.
+**Ingredients**: Cash hits `ingredientLeadWeeks` before the production run starts (i.e., when tubes arrive at AES). Separate line item in breakdown.
 
-### 3. Tube order size sanity check note
+**AES Production Cost**: Deferred to `productionCompleteWeek + 4 weeks` (Net 30). Production completes at order week + tube lead + production lead. Invoice hits 4 weeks after that.
 
-Add a note in the Action Plan tab when a tube order is triggered, showing the math: "30,000 tubes at current velocity (1,000/wk) = 30 weeks of tube supply. At $0.31/tube = $9,300 cash outlay." This helps the user evaluate if the order size makes sense.
+**Freight**: Hits when goods ship (production complete week).
+
+Each becomes a separate entry in `cashOutBreakdown` with its own date.
+
+### 3. Dynamic Continuous Reordering
+
+Replace the single-use `tubeOrderPlaced` / `productionPlaced` boolean flags with a **cooldown tracker**:
+
+- Track `nextEligibleProductionWeek` (starts at 0)
+- When inventory crosses the buffer threshold (`weeklyVelocity * minWeeksStock`) AND `w >= nextEligibleProductionWeek`, trigger a new production cycle
+- Set `nextEligibleProductionWeek = w + totalLeadWeeks` (can't retrigger until current run lands)
+- Same pattern for tube orders — check tube stock relative to upcoming production needs
+- This allows multiple production runs across the 16-week window
+
+### 4. Expense Forecast with Approval
+
+Add a `scheduledExpenses` array to model output. Each entry:
+```
+{ id, weekIndex, dateLabel, description, amount, category, approved: boolean }
+```
+
+- All triggered costs (ingredients, AES invoice, tube tranches, freight) become scheduled expenses
+- New UI section in the **Action Plan** tab: "Expense Forecast" table with approve/reject toggle per row
+- Store approvals in component state (and localStorage via save)
+- Only `approved` expenses flow into the cash simulation; unapproved show as dashed/pending in charts
+
+### 5. Interactive Inventory Tab
+
+- When inventory crosses the 8-week buffer, show the exact date with an annotation on the chart (e.g., "Apr 23 — hits 8wk buffer")
+- Add a "Pipeline" section below the chart showing in-flight orders: tubes en route, production in progress, freight in transit — each with expected arrival date
+- Show a plain-English reorder recommendation: "Initiate production by [date] to maintain stock. This requires [X] tubes, [Y] ingredients, costing [$Z] across 3 payments."
+
+### 6. Action Plan Cascade View
+
+Upgrade triggered actions to show the full cascade:
+```
+Tube Order (Week of Mar 3) → $4,650 upfront
+  ↳ Tubes arrive at AES (Week of Apr 7)
+  ↳ Ingredient order (Week of Mar 24) → $3,500
+  ↳ Production run starts (Week of Apr 7) → AES invoice due May 5
+  ↳ Freight ships (Week of Apr 21) → $350
+  ↳ Inventory arrives at Sabah (Week of Apr 28) → +10,000 units
+```
 
 ### Files
 - **Edit**: `src/components/tabs/CashPlannerTab.tsx` — all changes in this single file
