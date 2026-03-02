@@ -417,6 +417,7 @@ export type Database = {
           created_at: string
           customer: string
           date_issued: string
+          direction: string
           due_date: string
           file_url: string | null
           id: string
@@ -431,6 +432,7 @@ export type Database = {
           created_at?: string
           customer: string
           date_issued?: string
+          direction?: string
           due_date: string
           file_url?: string | null
           id?: string
@@ -445,6 +447,7 @@ export type Database = {
           created_at?: string
           customer?: string
           date_issued?: string
+          direction?: string
           due_date?: string
           file_url?: string | null
           id?: string

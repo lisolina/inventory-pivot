@@ -22,7 +22,7 @@ import { SortableTableHead, useSort, sortData } from "@/components/SortableTable
 type TimeRange = "week" | "month" | "quarter" | "year";
 
 interface Invoice {
-  id: string; invoice_number: string | null; customer: string; amount: number; date_issued: string; due_date: string; status: string; file_url?: string | null;
+  id: string; invoice_number: string | null; customer: string; amount: number; date_issued: string; due_date: string; status: string; file_url?: string | null; direction?: string;
 }
 interface Expense {
   id: string; date: string; category: string; description: string; amount: number; type: string; status: string;
@@ -43,7 +43,7 @@ export const MoneyTab = () => {
   const [addInvoiceOpen, setAddInvoiceOpen] = useState(false);
   const [addExpenseOpen, setAddExpenseOpen] = useState(false);
   const [newCash, setNewCash] = useState({ amount: "", description: "", type: "balance_update" });
-  const [newInvoice, setNewInvoice] = useState({ customer: "", amount: "", due_date: "", invoice_number: "" });
+  const [newInvoice, setNewInvoice] = useState({ customer: "", amount: "", due_date: "", invoice_number: "", direction: "receivable" });
   const [newExpense, setNewExpense] = useState({ description: "", amount: "", category: "other", type: "one-time", status: "upcoming" });
   const [qbStatus, setQbStatus] = useState<"unknown" | "connected" | "disconnected">("unknown");
   const [qbConnecting, setQbConnecting] = useState(false);
@@ -159,11 +159,12 @@ export const MoneyTab = () => {
       const { error } = await supabase.from("invoices").insert({
         customer: newInvoice.customer, amount: parseFloat(newInvoice.amount),
         due_date: newInvoice.due_date, invoice_number: newInvoice.invoice_number || null,
-      });
+        direction: newInvoice.direction,
+      } as any);
       if (error) throw error;
       toast({ title: "Invoice Added" });
       setAddInvoiceOpen(false);
-      setNewInvoice({ customer: "", amount: "", due_date: "", invoice_number: "" });
+      setNewInvoice({ customer: "", amount: "", due_date: "", invoice_number: "", direction: "receivable" });
       fetchAll();
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
@@ -226,6 +227,7 @@ export const MoneyTab = () => {
       case "invoice_number": return item.invoice_number;
       case "customer": return item.customer;
       case "amount": return item.amount;
+      case "direction": return item.direction;
       case "due_date": return item.due_date;
       case "status": return item.status;
       default: return "";
@@ -353,6 +355,16 @@ export const MoneyTab = () => {
                   <div><Label>Amount ($)</Label><Input type="number" value={newInvoice.amount} onChange={(e) => setNewInvoice({ ...newInvoice, amount: e.target.value })} /></div>
                   <div><Label>Due Date</Label><Input type="date" value={newInvoice.due_date} onChange={(e) => setNewInvoice({ ...newInvoice, due_date: e.target.value })} /></div>
                   <div><Label>Invoice #</Label><Input value={newInvoice.invoice_number} onChange={(e) => setNewInvoice({ ...newInvoice, invoice_number: e.target.value })} /></div>
+                  <div>
+                    <Label>Direction</Label>
+                    <Select value={newInvoice.direction} onValueChange={(v) => setNewInvoice({ ...newInvoice, direction: v })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="receivable">Receivable (owed to you)</SelectItem>
+                        <SelectItem value="payable">Payable (you owe)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <Button onClick={handleAddInvoice} className="w-full">Add Invoice</Button>
                 </div>
               </DialogContent>
@@ -367,8 +379,9 @@ export const MoneyTab = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <SortableTableHead label="Invoice #" sortKey="invoice_number" currentSort={invoiceSort.sort} onSort={invoiceSort.handleSort} />
+                     <SortableTableHead label="Invoice #" sortKey="invoice_number" currentSort={invoiceSort.sort} onSort={invoiceSort.handleSort} />
                       <SortableTableHead label="Customer" sortKey="customer" currentSort={invoiceSort.sort} onSort={invoiceSort.handleSort} />
+                      <SortableTableHead label="Type" sortKey="direction" currentSort={invoiceSort.sort} onSort={invoiceSort.handleSort} />
                       <SortableTableHead label="Amount" sortKey="amount" currentSort={invoiceSort.sort} onSort={invoiceSort.handleSort} className="text-right" />
                       <SortableTableHead label="Due" sortKey="due_date" currentSort={invoiceSort.sort} onSort={invoiceSort.handleSort} />
                       <SortableTableHead label="Status" sortKey="status" currentSort={invoiceSort.sort} onSort={invoiceSort.handleSort} />
@@ -381,7 +394,14 @@ export const MoneyTab = () => {
                       <TableRow key={inv.id}>
                         <TableCell>{inv.invoice_number || "—"}</TableCell>
                         <TableCell className="font-medium">{inv.customer}</TableCell>
-                        <TableCell className="text-right">${Number(inv.amount).toLocaleString()}</TableCell>
+                        <TableCell>
+                          <Badge variant={inv.direction === "payable" ? "destructive" : "default"} className="text-xs">
+                            {inv.direction === "payable" ? "Payable" : "Receivable"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className={`text-right ${inv.direction === "payable" ? "text-destructive" : "text-success"}`}>
+                          {inv.direction === "payable" ? "-" : "+"}${Number(inv.amount).toLocaleString()}
+                        </TableCell>
                         <TableCell>{new Date(inv.due_date).toLocaleDateString()}</TableCell>
                         <TableCell>{getDueBadge(inv.due_date, inv.status)}</TableCell>
                         <TableCell>

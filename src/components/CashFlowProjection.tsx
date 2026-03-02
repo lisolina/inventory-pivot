@@ -72,9 +72,12 @@ export const CashFlowProjection = () => {
       events.push({ date: new Date(key + "T00:00:00"), type, description: desc, amount });
     };
 
-    // Pending invoices (inflows)
-    invoices.forEach((inv) => {
-      if (inv.due_date) addFlow(inv.due_date, "inflow", Number(inv.amount), `Invoice: ${inv.customer}`);
+    // Pending invoices — direction determines inflow vs outflow
+    invoices.forEach((inv: any) => {
+      if (inv.due_date) {
+        const type = inv.direction === "payable" ? "outflow" : "inflow";
+        addFlow(inv.due_date, type, Number(inv.amount), `Invoice: ${inv.customer}`);
+      }
     });
 
     // Upcoming expenses (outflows)
