@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import {
   ComposedChart, BarChart, Bar, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, ReferenceLine,
@@ -9,7 +9,9 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, TrendingUp, Package, DollarSign, ShieldCheck } from "lucide-react";
+import { AlertTriangle, TrendingUp, Package, DollarSign, ShieldCheck, Save, RotateCcw } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { toast } from "@/hooks/use-toast";
 
 // ── Default model inputs ────────────────────────────────────────────
 const defaultInputs = {
@@ -33,14 +35,24 @@ const defaultInputs = {
   productionLeadWeeks: 2,
   freightToSabahWeeks: 1,
   minWeeksStock: 8,
-  productionRunSize: 5000,
+  productionRunSize: 10000,
   tubeOrderSize: 30000,
-  tubeCostPer: 0.12,
-  ingredientCostPerUnit: 0.45,
+  tubeCostPer: 0.31,
+  ingredientCostPerUnit: 0.35,
   productionCostPerUnit: 0.35,
   freightPerRun: 350,
   tubesOnHand: 25000,
 };
+
+const STORAGE_KEY = "lisolina-planner-inputs";
+
+function loadSavedInputs(): Inputs {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) return { ...defaultInputs, ...JSON.parse(saved) };
+  } catch {}
+  return defaultInputs;
+}
 
 type Inputs = typeof defaultInputs;
 
@@ -258,15 +270,36 @@ const C_ORANGE = "hsl(38, 92%, 50%)";
 
 // ═══════════════════════════════════════════════════════════════════
 export function CashPlannerTab() {
-  const [inputs, setInputs] = useState<Inputs>(defaultInputs);
+  const [inputs, setInputs] = useState<Inputs>(loadSavedInputs);
   const set = useCallback((key: keyof Inputs) => (val: number) => setInputs((p) => ({ ...p, [key]: val })), []);
   const model = useModel(inputs);
+
+  const handleSave = useCallback(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(inputs));
+    toast({ title: "Inputs saved", description: "Your model inputs have been saved and will persist between sessions." });
+  }, [inputs]);
+
+  const handleReset = useCallback(() => {
+    setInputs(defaultInputs);
+    localStorage.removeItem(STORAGE_KEY);
+    toast({ title: "Inputs reset", description: "Model inputs restored to defaults." });
+  }, []);
 
   return (
     <div className="flex gap-0 -mx-6 -mt-2">
       {/* ── LEFT SIDEBAR ──────────────────────────────────────── */}
       <ScrollArea className="w-[270px] min-w-[270px] border-r border-border bg-card px-3.5 py-4" style={{ height: "calc(100vh - 140px)" }}>
-        <div className="text-[11px] font-bold tracking-widest text-accent mb-3">MODEL INPUTS</div>
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-[11px] font-bold tracking-widest text-accent">MODEL INPUTS</span>
+        </div>
+        <div className="flex gap-1.5 mb-4">
+          <Button size="sm" variant="default" className="flex-1 h-8 text-xs" onClick={handleSave}>
+            <Save className="h-3.5 w-3.5 mr-1" /> Save
+          </Button>
+          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={handleReset}>
+            <RotateCcw className="h-3.5 w-3.5" />
+          </Button>
+        </div>
 
         <SidebarSection>Starting Position</SidebarSection>
         <InputField label="Cash on Hand" value={inputs.cashOnHand} onChange={set("cashOnHand")} prefix="$" step={500} />
