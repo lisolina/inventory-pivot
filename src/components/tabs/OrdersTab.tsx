@@ -85,7 +85,26 @@ export const OrdersTab = () => {
     if (data) setForwardedEmails(data);
   };
 
-  useEffect(() => { fetchOrders(); fetchEmails(); }, []);
+  const [syncingShopify, setSyncingShopify] = useState(false);
+
+  const syncShopifyOrders = async () => {
+    setSyncingShopify(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("fetch-pending-orders", {
+        body: { includeHistorical: true, syncToDb: true },
+      });
+      if (error) throw error;
+      toast({ title: "Shopify Synced", description: `${data?.totalShopify || 0} orders from Shopify` });
+      fetchOrders();
+    } catch (e: any) {
+      console.error("Shopify sync error:", e);
+      toast({ title: "Shopify Sync Issue", description: e.message, variant: "destructive" });
+    } finally {
+      setSyncingShopify(false);
+    }
+  };
+
+  useEffect(() => { fetchOrders(); fetchEmails(); syncShopifyOrders(); }, []);
 
   const openOrders = orders.filter((o) => ["new", "processing", "shipped"].includes(o.status));
   const fulfilledOrders = orders.filter((o) => ["delivered", "invoiced", "paid"].includes(o.status));
