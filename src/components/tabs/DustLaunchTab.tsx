@@ -8,10 +8,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Package, Calendar, DollarSign, Clock, Trash2, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Plus, Package, Calendar, DollarSign, Clock, Trash2, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Send, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { format, differenceInDays } from "date-fns";
+import { format, differenceInDays, startOfMonth, endOfMonth, addMonths, subMonths, eachDayOfInterval, isSameDay, isSameMonth, getDay } from "date-fns";
 
 interface LaunchProduct {
   id: string;
@@ -35,6 +35,8 @@ interface LaunchMilestone {
   lead_time_days: number;
   payment_terms: string | null;
   notes: string | null;
+  order_placed_date: string | null;
+  arrived_date: string | null;
 }
 
 const categoryColors: Record<string, string> = {
@@ -43,6 +45,20 @@ const categoryColors: Record<string, string> = {
   packaging: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
   "go-to-market": "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
 };
+
+const categoryDotColors: Record<string, string> = {
+  ordering: "bg-blue-500",
+  production: "bg-amber-500",
+  packaging: "bg-purple-500",
+  "go-to-market": "bg-green-500",
+};
+
+interface ParsedTask {
+  title: string;
+  category: string;
+  product_name?: string;
+  notes?: string;
+}
 
 export const DustLaunchTab = () => {
   const { toast } = useToast();
@@ -53,6 +69,11 @@ export const DustLaunchTab = () => {
   const [addMilestoneOpen, setAddMilestoneOpen] = useState(false);
   const [newProduct, setNewProduct] = useState({ name: "", unit_price: "", tube_cost: "", ingredient_cost: "", production_cost: "", target_launch_date: "", notes: "" });
   const [newMilestone, setNewMilestone] = useState({ product_id: "", title: "", category: "ordering", deadline: "", cash_impact: "", lead_time_days: "", payment_terms: "", notes: "" });
+  const [calendarStart, setCalendarStart] = useState(startOfMonth(new Date()));
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [nlInput, setNlInput] = useState("");
+  const [nlParsing, setNlParsing] = useState(false);
+  const [parsedTasks, setParsedTasks] = useState<ParsedTask[]>([]);
 
   const fetchData = async () => {
     const [prodRes, mileRes, cashRes] = await Promise.all([
@@ -142,7 +163,11 @@ export const DustLaunchTab = () => {
     toast({ title: "Product Deleted" });
   };
 
-  // Compute cumulative cash impact at each milestone deadline
+  const updateLeadTimeField = async (id: string, field: "order_placed_date" | "arrived_date", value: string) => {
+    await supabase.from("launch_milestones").update({ [field]: value || null } as any).eq("id", id);
+    fetchData();
+  };
+
   const getCashAtDeadline = (deadline: string | null) => {
     if (!deadline) return cashBalance;
     const target = new Date(deadline);
@@ -155,8 +180,220 @@ export const DustLaunchTab = () => {
     return projected;
   };
 
+  // NL Input handler
+  const handleNlSubmit = async () => {
+    if (!nlInput.trim()) return;
+    setNlParsing(true);
+    try {
+      const productNames = products.map(p => p.name).join(", ");
+      const systemPrompt = `You are a task extraction assistant for a product launch tracker. Extract actionable tasks from the user's freeform input. Return ONLY valid JSON array of tasks. Each task: {"title": "...", "category": "ordering|production|packaging|go-to-market", "product_name": "..." or null, "notes": "..."}. Available products: ${productNames || "none yet"}. Be specific and actionable.`;
+      
+      const res = await supabase.functions.invoke("chat", {
+        body: {
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: nlInput },
+          ],
+        },
+      });
+
+      if (res.error) throw res.error;
+
+      // Parse SSE response
+      const reader = res.data instanceof ReadableStream ? res.data.getReader() : null;
+      let fullText = "";
+      if (reader) {
+        const decoder = new TextDecoder();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value);
+          const lines = chunk.split("\n");
+          for (const line of lines) {
+            if (line.startsWith("data: ") && line !== "data: [DONE]") {
+              try {
+                const json = JSON.parse(line.slice(6));
+                const delta = json.choices?.[0]?.delta?.content;
+                if (delta) fullText += delta;
+              } catch {}
+            }
+          }
+        }
+      }
+
+      // Extract JSON from response
+      const jsonMatch = fullText.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        const tasks: ParsedTask[] = JSON.parse(jsonMatch[0]);
+        setParsedTasks(tasks);
+      } else {
+        toast({ title: "Couldn't parse tasks", description: "Try rephrasing your input", variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setNlParsing(false);
+    }
+  };
+
+  const confirmParsedTasks = async () => {
+    try {
+      for (const task of parsedTasks) {
+        const product = products.find(p => p.name.toLowerCase().includes((task.product_name || "").toLowerCase()));
+        await supabase.from("launch_milestones").insert({
+          title: task.title,
+          category: task.category || "ordering",
+          product_id: product?.id || null,
+          notes: task.notes || null,
+        } as any);
+      }
+      toast({ title: `${parsedTasks.length} tasks added` });
+      setParsedTasks([]);
+      setNlInput("");
+      fetchData();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  // Calendar helpers
+  const calendarMonths = [calendarStart, addMonths(calendarStart, 1), addMonths(calendarStart, 2)];
+
+  const getMilestonesForDate = (date: Date) => {
+    return milestones.filter(m => m.deadline && isSameDay(new Date(m.deadline), date));
+  };
+
+  const getLaunchDatesForDate = (date: Date) => {
+    return products.filter(p => p.target_launch_date && isSameDay(new Date(p.target_launch_date), date));
+  };
+
   return (
     <div className="space-y-6">
+      {/* NL Input */}
+      <Card>
+        <CardContent className="pt-4 pb-3">
+          <div className="flex gap-2">
+            <Textarea
+              value={nlInput}
+              onChange={(e) => setNlInput(e.target.value)}
+              placeholder="Type a freeform update... e.g. 'Porcini dust packaging designs are nearly finished. Need to send to Gemstone and figure out unit count. Order alongside next aglio packaging run.'"
+              className="min-h-[60px] flex-1"
+            />
+            <Button onClick={handleNlSubmit} disabled={nlParsing || !nlInput.trim()} className="self-end">
+              {nlParsing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            </Button>
+          </div>
+          {parsedTasks.length > 0 && (
+            <div className="mt-3 space-y-2">
+              <p className="text-sm font-medium">Extracted tasks — confirm to add:</p>
+              {parsedTasks.map((t, i) => (
+                <div key={i} className="flex items-center gap-2 text-sm bg-muted rounded px-3 py-2">
+                  <Badge className={categoryColors[t.category] || ""} variant="outline">{t.category}</Badge>
+                  <span className="flex-1">{t.title}</span>
+                  {t.product_name && <Badge variant="secondary">{t.product_name}</Badge>}
+                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setParsedTasks(parsedTasks.filter((_, j) => j !== i))}>
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+              <div className="flex gap-2">
+                <Button size="sm" onClick={confirmParsedTasks}>Add {parsedTasks.length} Tasks</Button>
+                <Button size="sm" variant="outline" onClick={() => setParsedTasks([])}>Cancel</Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 3-Month Calendar */}
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2"><Calendar className="h-5 w-5" /> Launch Calendar</CardTitle>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setCalendarStart(subMonths(calendarStart, 1))}>
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setCalendarStart(startOfMonth(new Date()))}>Today</Button>
+              <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setCalendarStart(addMonths(calendarStart, 1))}>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          <div className="flex gap-4 text-xs mt-1">
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" />Ordering</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" />Production</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-purple-500" />Packaging</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" />Go-to-Market</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" />Launch Date</span>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-3 gap-4">
+            {calendarMonths.map((monthStart) => {
+              const monthEnd = endOfMonth(monthStart);
+              const days = eachDayOfInterval({ start: monthStart, end: monthEnd });
+              const startDow = getDay(monthStart);
+              return (
+                <div key={monthStart.toISOString()}>
+                  <p className="text-sm font-semibold text-center mb-2">{format(monthStart, "MMMM yyyy")}</p>
+                  <div className="grid grid-cols-7 gap-0 text-center text-[10px] text-muted-foreground mb-1">
+                    {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => <div key={i}>{d}</div>)}
+                  </div>
+                  <div className="grid grid-cols-7 gap-0">
+                    {Array.from({ length: startDow }).map((_, i) => <div key={`empty-${i}`} />)}
+                    {days.map((day) => {
+                      const dayMilestones = getMilestonesForDate(day);
+                      const dayLaunches = getLaunchDatesForDate(day);
+                      const isToday = isSameDay(day, new Date());
+                      const isSelected = selectedDate && isSameDay(day, selectedDate);
+                      const hasDots = dayMilestones.length > 0 || dayLaunches.length > 0;
+                      return (
+                        <button
+                          key={day.toISOString()}
+                          onClick={() => setSelectedDate(isSelected ? null : day)}
+                          className={`p-1 text-xs rounded hover:bg-muted transition-colors relative ${isToday ? "font-bold ring-1 ring-primary" : ""} ${isSelected ? "bg-primary/10" : ""}`}
+                        >
+                          {day.getDate()}
+                          {hasDots && (
+                            <div className="flex justify-center gap-[2px] mt-[1px]">
+                              {[...new Set(dayMilestones.map(m => m.category))].map((cat) => (
+                                <span key={cat} className={`w-1.5 h-1.5 rounded-full ${categoryDotColors[cat] || "bg-muted-foreground"}`} />
+                              ))}
+                              {dayLaunches.length > 0 && <span className="w-1.5 h-1.5 rounded-full bg-red-500" />}
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {selectedDate && (
+            <div className="mt-4 border-t pt-3">
+              <p className="text-sm font-medium mb-2">{format(selectedDate, "MMMM d, yyyy")}</p>
+              {getMilestonesForDate(selectedDate).map(m => (
+                <div key={m.id} className="flex items-center gap-2 text-sm mb-1">
+                  <Badge className={categoryColors[m.category] || ""} variant="outline">{m.category}</Badge>
+                  <span>{m.title}</span>
+                </div>
+              ))}
+              {getLaunchDatesForDate(selectedDate).map(p => (
+                <div key={p.id} className="flex items-center gap-2 text-sm mb-1">
+                  <Badge variant="destructive">🚀 Launch</Badge>
+                  <span>{p.name}</span>
+                </div>
+              ))}
+              {getMilestonesForDate(selectedDate).length === 0 && getLaunchDatesForDate(selectedDate).length === 0 && (
+                <p className="text-sm text-muted-foreground">No events on this date.</p>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Product Cards */}
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold flex items-center gap-2"><Package className="h-5 w-5" /> New SKU Products</h2>
@@ -279,6 +516,9 @@ export const DustLaunchTab = () => {
             const orderByDate = m.deadline && m.lead_time_days ? format(new Date(new Date(m.deadline).getTime() - m.lead_time_days * 86400000), "MMM d, yyyy") : null;
             const projectedCash = getCashAtDeadline(m.deadline);
             const canAfford = projectedCash >= Number(m.cash_impact);
+            const actualLeadTime = m.order_placed_date && m.arrived_date
+              ? differenceInDays(new Date(m.arrived_date), new Date(m.order_placed_date))
+              : null;
 
             return (
               <Card key={m.id} className={`${m.status === "done" ? "opacity-60" : ""}`}>
@@ -301,6 +541,32 @@ export const DustLaunchTab = () => {
                         )}
                         {orderByDate && <span><Clock className="h-3 w-3 inline mr-1" />Order by: {orderByDate}</span>}
                         {m.payment_terms && <span>Terms: {m.payment_terms}</span>}
+                      </div>
+                      {/* Lead time tracking */}
+                      <div className="flex items-center gap-3 mt-2 text-xs flex-wrap">
+                        <div className="flex items-center gap-1">
+                          <span className="text-muted-foreground">Ordered:</span>
+                          <Input
+                            type="date"
+                            className="h-6 w-[130px] text-xs px-1"
+                            value={m.order_placed_date ? m.order_placed_date.split("T")[0] : ""}
+                            onChange={(e) => updateLeadTimeField(m.id, "order_placed_date", e.target.value)}
+                          />
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="text-muted-foreground">Arrived:</span>
+                          <Input
+                            type="date"
+                            className="h-6 w-[130px] text-xs px-1"
+                            value={m.arrived_date ? m.arrived_date.split("T")[0] : ""}
+                            onChange={(e) => updateLeadTimeField(m.id, "arrived_date", e.target.value)}
+                          />
+                        </div>
+                        {actualLeadTime !== null && (
+                          <Badge variant="outline" className="text-xs">
+                            Actual: {actualLeadTime}d {m.lead_time_days ? `(est. ${m.lead_time_days}d)` : ""}
+                          </Badge>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">

@@ -395,9 +395,21 @@ export const MoneyTab = () => {
                         <TableCell>{inv.invoice_number || "—"}</TableCell>
                         <TableCell className="font-medium">{inv.customer}</TableCell>
                         <TableCell>
-                          <Badge variant={inv.direction === "payable" ? "destructive" : "default"} className="text-xs">
-                            {inv.direction === "payable" ? "Payable" : "Receivable"}
-                          </Badge>
+                          <Select
+                            value={inv.direction || "receivable"}
+                            onValueChange={async (val) => {
+                              await supabase.from("invoices").update({ direction: val } as any).eq("id", inv.id);
+                              fetchAll();
+                            }}
+                          >
+                            <SelectTrigger className={`h-7 w-[120px] text-xs ${inv.direction === "payable" ? "text-destructive border-destructive/50" : "text-success border-success/50"}`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="receivable">Receivable</SelectItem>
+                              <SelectItem value="payable">Payable</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </TableCell>
                         <TableCell className={`text-right ${inv.direction === "payable" ? "text-destructive" : "text-success"}`}>
                           {inv.direction === "payable" ? "-" : "+"}${Number(inv.amount).toLocaleString()}
