@@ -24,10 +24,12 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     const emailData: EmailWebhook = await req.json();
-    console.log('Received email:', emailData.subject);
+    const subject = emailData.subject || '';
+    const from = emailData.from || '';
+    console.log('Received email:', subject);
 
     // Extract PO number from subject (format: PO#123 or PO #123)
-    const poMatch = emailData.subject.match(/PO\s*#?\s*(\d+)/i);
+    const poMatch = subject.match(/PO\s*#?\s*(\d+)/i);
     const poNumber = poMatch ? `PO#${poMatch[1]}` : null;
 
     // Parse email body for product details
@@ -45,8 +47,8 @@ serve(async (req) => {
       const match = line.match(/(.+?)[\-:]\s*(\d+)/);
       if (match) {
         orders.push({
-          email_from: emailData.from,
-          email_subject: emailData.subject,
+          email_from: from,
+          email_subject: subject,
           po_number: poNumber,
           product_name: match[1].trim(),
           quantity: parseInt(match[2]),
@@ -58,8 +60,8 @@ serve(async (req) => {
     // If no structured products found, create one entry with the whole email
     if (orders.length === 0 && poNumber) {
       orders.push({
-        email_from: emailData.from,
-        email_subject: emailData.subject,
+        email_from: from,
+        email_subject: subject,
         po_number: poNumber,
         product_name: 'Manual Review Required',
         quantity: 0,
