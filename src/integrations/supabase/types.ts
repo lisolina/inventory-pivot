@@ -469,6 +469,7 @@ export type Database = {
       }
       launch_milestones: {
         Row: {
+          arrived_date: string | null
           cash_impact: number | null
           category: string
           created_at: string
@@ -476,12 +477,14 @@ export type Database = {
           id: string
           lead_time_days: number | null
           notes: string | null
+          order_placed_date: string | null
           payment_terms: string | null
           product_id: string | null
           status: string
           title: string
         }
         Insert: {
+          arrived_date?: string | null
           cash_impact?: number | null
           category?: string
           created_at?: string
@@ -489,12 +492,14 @@ export type Database = {
           id?: string
           lead_time_days?: number | null
           notes?: string | null
+          order_placed_date?: string | null
           payment_terms?: string | null
           product_id?: string | null
           status?: string
           title: string
         }
         Update: {
+          arrived_date?: string | null
           cash_impact?: number | null
           category?: string
           created_at?: string
@@ -502,6 +507,7 @@ export type Database = {
           id?: string
           lead_time_days?: number | null
           notes?: string | null
+          order_placed_date?: string | null
           payment_terms?: string | null
           product_id?: string | null
           status?: string
@@ -817,6 +823,45 @@ export type Database = {
           priority?: string
           source?: string | null
           source_id?: string | null
+          status?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      world_tasks: {
+        Row: {
+          category: string
+          created_at: string
+          deadline: string | null
+          description: string | null
+          id: string
+          notes: string | null
+          priority: string
+          status: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          category?: string
+          created_at?: string
+          deadline?: string | null
+          description?: string | null
+          id?: string
+          notes?: string | null
+          priority?: string
+          status?: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          deadline?: string | null
+          description?: string | null
+          id?: string
+          notes?: string | null
+          priority?: string
           status?: string
           title?: string
           updated_at?: string

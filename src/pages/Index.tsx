@@ -12,6 +12,7 @@ import { OrdersTab } from "@/components/tabs/OrdersTab";
 import { MoneyTab } from "@/components/tabs/MoneyTab";
 import { SalesCRMTab } from "@/components/tabs/SalesCRMTab";
 import { DustLaunchTab } from "@/components/tabs/DustLaunchTab";
+import { WorldBuildingTab } from "@/components/tabs/WorldBuildingTab";
 
 const Index = () => {
   const navigate = useNavigate();
@@ -65,6 +66,7 @@ const Index = () => {
             <TabsTrigger value="money">Money</TabsTrigger>
             <TabsTrigger value="sales-crm">Sales CRM</TabsTrigger>
             <TabsTrigger value="dust-launch">Dust Launch HQ</TabsTrigger>
+            <TabsTrigger value="world-building">World Building</TabsTrigger>
           </TabsList>
 
           <TabsContent value="dashboard"><DashboardTab onNavigate={setActiveTab} /></TabsContent>
@@ -73,6 +75,7 @@ const Index = () => {
           <TabsContent value="money"><MoneyTab /></TabsContent>
           <TabsContent value="sales-crm"><SalesCRMTab /></TabsContent>
           <TabsContent value="dust-launch"><DustLaunchTab /></TabsContent>
+          <TabsContent value="world-building"><WorldBuildingTab /></TabsContent>
         </Tabs>
         <AIChatWidget />
       </main>

@@ -27,9 +27,9 @@ export const InventoryTab = () => {
   const [lastSynced, setLastSynced] = useState<string | undefined>();
   const [syncing, setSyncing] = useState(false);
   const [shipping, setShipping] = useState<any[]>([]);
-  const finishedSort = useSort();
-  const packagingSort = useSort();
-  const shippingSort = useSort();
+  const finishedSort = useSort("units_on_hand", "desc");
+  const packagingSort = useSort("units_on_hand", "desc");
+  const shippingSort = useSort("quantity", "desc");
 
   const fetchAll = async () => {
     const [sheetsRes, shipRes] = await Promise.all([
