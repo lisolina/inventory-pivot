@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback } from "react";
 import {
   ComposedChart, BarChart, Bar, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, ReferenceLine,
@@ -9,9 +9,26 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, TrendingUp, Package, DollarSign, ShieldCheck, Save, RotateCcw } from "lucide-react";
+import { AlertTriangle, TrendingUp, Package, DollarSign, ShieldCheck, Save, RotateCcw, ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
+import { addWeeks, format, differenceInWeeks, startOfWeek } from "date-fns";
+
+// ── Epoch: Week 1 starts Jan 1, 2026 ───────────────────────────────
+const EPOCH = new Date(2026, 0, 1); // Jan 1 2026 (Thu)
+
+function weekToDate(weekIndex: number): Date {
+  return addWeeks(EPOCH, weekIndex);
+}
+
+function currentWeekIndex(): number {
+  return differenceInWeeks(new Date(), EPOCH);
+}
+
+function weekLabel(weekIndex: number): string {
+  const d = weekToDate(weekIndex);
+  return format(d, "MMM d");
+}
 
 // ── Default model inputs ────────────────────────────────────────────
 const defaultInputs = {
@@ -138,7 +155,7 @@ function SidebarSection({ children }: { children: React.ReactNode }) {
 }
 
 // ── Core planner model (16-week simulation) ─────────────────────────
-function useModel(inputs: Inputs) {
+function useModel(inputs: Inputs, startWeekOffset: number) {
   return useMemo(() => {
     const weeks = 16;
     const {
@@ -230,8 +247,11 @@ function useModel(inputs: Inputs) {
       }
 
       cashBalance += weekCashIn - weekCashOut;
+      const absWeek = startWeekOffset + w;
+      const dateStr = weekLabel(absWeek);
+      const isCurrent = absWeek === currentWeekIndex();
       weeklyData.push({
-        week: w + 1, label: `Wk ${w + 1}`,
+        week: absWeek + 1, label: dateStr, isCurrent,
         cashIn: Math.round(weekCashIn), cashOut: Math.round(weekCashOut),
         netCash: Math.round(weekCashIn - weekCashOut), cashBalance: Math.round(cashBalance),
         inventory, tubes, unitsSold, revenue: Math.round(weekRevenue),
@@ -253,7 +273,7 @@ function useModel(inputs: Inputs) {
       weeksOfStock, reorderWeek, totalLeadWeeks, weeklyContrib,
       faireUnits, wbcUnits, dtcUnits, weeklyOpex, weeklyWayflier, blendedRevPerUnit,
     };
-  }, [inputs]);
+  }, [inputs, startWeekOffset]);
 }
 
 // ── Formatters ──────────────────────────────────────────────────────
@@ -271,8 +291,13 @@ const C_ORANGE = "hsl(38, 92%, 50%)";
 // ═══════════════════════════════════════════════════════════════════
 export function CashPlannerTab() {
   const [inputs, setInputs] = useState<Inputs>(loadSavedInputs);
+  const [startWeekOffset, setStartWeekOffset] = useState(() => currentWeekIndex());
   const set = useCallback((key: keyof Inputs) => (val: number) => setInputs((p) => ({ ...p, [key]: val })), []);
-  const model = useModel(inputs);
+  const model = useModel(inputs, startWeekOffset);
+
+  const goBack = () => setStartWeekOffset((o) => o - 4);
+  const goForward = () => setStartWeekOffset((o) => o + 4);
+  const goToNow = () => setStartWeekOffset(currentWeekIndex());
 
   const handleSave = useCallback(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(inputs));
@@ -340,19 +365,37 @@ export function CashPlannerTab() {
 
       {/* ── MAIN CONTENT ──────────────────────────────────────── */}
       <div className="flex-1 px-6 py-4 overflow-y-auto" style={{ height: "calc(100vh - 140px)" }}>
+        {/* Week navigation */}
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" className="h-8" onClick={goBack}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={goToNow}>
+              <CalendarDays className="h-3.5 w-3.5 mr-1" /> Today
+            </Button>
+            <Button size="sm" variant="outline" className="h-8" onClick={goForward}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+          <span className="text-xs text-muted-foreground font-medium">
+            {weekLabel(startWeekOffset)} — {weekLabel(startWeekOffset + 15)}, {format(weekToDate(startWeekOffset + 15), "yyyy")}
+          </span>
+        </div>
+
         {/* Metric cards */}
         <div className="flex gap-3 flex-wrap mb-4">
           <MetricCard icon={DollarSign} label="Cash on Hand" value={fmt(inputs.cashOnHand)} sub={`${model.weeksOfStock.toFixed(1)} weeks of stock`} />
           <MetricCard
             icon={AlertTriangle} label="Lowest Cash Point" value={fmtK(model.minCash)}
-            sub={`Week ${model.minCashWeek}`}
+            sub={weekLabel(startWeekOffset + model.minCashWeek - 1)}
             variant={model.minCash < 5000 ? "danger" : model.minCash < 10000 ? "warning" : "default"}
           />
           <MetricCard icon={TrendingUp} label="Blended Contribution" value={`$${model.blendedContribPerUnit.toFixed(2)}/unit`} sub={`${(model.blendedMargin * 100).toFixed(1)}% margin`} />
           <MetricCard icon={DollarSign} label="Weekly Contribution" value={fmtK(model.weeklyContrib)} sub={`${inputs.weeklyVelocity.toLocaleString()} units/wk`} variant="success" />
           <MetricCard
             icon={Package} label="Stockout Risk"
-            value={model.stockoutAt >= 0 ? `Week ${model.stockoutAt + 1}` : "None in 16wk"}
+            value={model.stockoutAt >= 0 ? weekLabel(startWeekOffset + model.stockoutAt) : "None in 16wk"}
             sub={model.stockoutAt >= 0 ? "Will run out of product" : "Inventory covered"}
             variant={model.stockoutAt >= 0 && model.stockoutAt < 8 ? "danger" : "success"}
           />
@@ -513,7 +556,7 @@ export function CashPlannerTab() {
               </div>
 
               <div className="mt-4 p-3.5 bg-accent/10 rounded-lg text-sm leading-relaxed">
-                <strong>Translation:</strong> At {inputs.weeklyVelocity.toLocaleString()} units/week, your {inputs.inventoryOnHand.toLocaleString()} units last ~{(inputs.inventoryOnHand / inputs.weeklyVelocity).toFixed(1)} weeks. With {model.totalLeadWeeks} weeks total lead time, you need to kick off the reorder by <strong>Week {Math.max(1, model.reorderWeek + 1)}</strong> to maintain your {inputs.minWeeksStock}-week buffer. The cash hit comes immediately when you order.
+                <strong>Translation:</strong> At {inputs.weeklyVelocity.toLocaleString()} units/week, your {inputs.inventoryOnHand.toLocaleString()} units last ~{(inputs.inventoryOnHand / inputs.weeklyVelocity).toFixed(1)} weeks. With {model.totalLeadWeeks} weeks total lead time, you need to kick off the reorder by <strong>{weekLabel(startWeekOffset + Math.max(0, model.reorderWeek))}</strong> to maintain your {inputs.minWeeksStock}-week buffer. The cash hit comes immediately when you order.
               </div>
             </CardContent></Card>
           </TabsContent>
@@ -532,7 +575,7 @@ export function CashPlannerTab() {
                     <CardContent className="p-4 flex justify-between items-center">
                       <div>
                         <div className={`text-[11px] font-semibold tracking-wide ${a.type === "tube_order" ? "text-accent" : "text-info"}`}>
-                          WEEK {a.week + 1} — {a.type === "tube_order" ? "TUBE ORDER" : "PRODUCTION RUN"}
+                          {weekLabel(startWeekOffset + a.week)} — {a.type === "tube_order" ? "TUBE ORDER" : "PRODUCTION RUN"}
                         </div>
                         <div className="text-sm font-semibold mt-1">{a.text}</div>
                       </div>
@@ -551,7 +594,7 @@ export function CashPlannerTab() {
                 "bg-success/5 border-success"
               }`}>
                 <strong>{model.minCash < 5000 ? "DANGER" : model.minCash < 10000 ? "TIGHT" : "COVERED"}:</strong>{" "}
-                Cash hits {fmt(model.minCash)} in Week {model.minCashWeek}.
+                Cash hits {fmt(model.minCash)} on {weekLabel(startWeekOffset + model.minCashWeek - 1)}.
                 {model.minCash < 5000 && " Below safety floor. Delay production, reduce run size, or accelerate receivables."}
                 {model.minCash >= 5000 && model.minCash < 10000 && " Tight but survivable. Avoid discretionary spend around this window."}
                 {model.minCash >= 10000 && " Adequate runway to cover production and maintain buffer."}
