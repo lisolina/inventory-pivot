@@ -74,7 +74,7 @@ const defaultInputs = {
   monthlyOpex: 7500,
   monthlySalary: 2500,
   wayflierBiweekly: 1155,
-  inventoryOnHand: 8000,
+  inventoryOnHand: 3400,
   tubeLeadWeeks: 5,
   productionLeadWeeks: 4,
   freightToSabahWeeks: 1,
@@ -85,7 +85,7 @@ const defaultInputs = {
   ingredientCostPerUnit: 0.35,
   productionCostPerUnit: 0.75,
   freightPerRun: 350,
-  tubesOnHand: 25000,
+  tubesOnHand: 0,
   // Phase 1 payment inputs
   tubePaymentPct1: 25,
   tubePaymentPct2: 25,
@@ -95,6 +95,9 @@ const defaultInputs = {
   ingredientFundingDate: "2026-04-15",
   productionFundingDate: "2026-05-31",
   freightFundingDate: "",
+  // Tube order & production history
+  tubeOrderDate: "",
+  lastProductionRunDate: "2026-02-16",
 };
 
 const STORAGE_KEY = "lisolina-planner-inputs";
@@ -316,6 +319,7 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
       ingredientCostPerUnit, productionCostPerUnit, freightPerRun, tubesOnHand,
       tubePaymentPct1, tubePaymentPct2, ingredientLeadWeeks, aesNetDays,
       ingredientFundingDate, productionFundingDate, freightFundingDate,
+      tubeOrderDate, lastProductionRunDate,
     } = inputs;
 
     const faireUnits = Math.round(weeklyVelocity * faireShare / 100);
@@ -342,6 +346,14 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
     const productionFundingAbsWeek = productionFundingDate ? dateToWeekIndex(productionFundingDate) : -1;
     const freightFundingAbsWeek = freightFundingDate ? dateToWeekIndex(freightFundingDate) : -1;
 
+    // Tube order date override → relative week index
+    const tubeOrderAbsWeek = tubeOrderDate ? dateToWeekIndex(tubeOrderDate) : -1;
+    const tubeOrderRelWeek = tubeOrderAbsWeek >= 0 ? tubeOrderAbsWeek - startWeekOffset : -1;
+
+    // Last production run → compute cooldown so no false trigger at week 0
+    const lastProdAbsWeek = lastProductionRunDate ? dateToWeekIndex(lastProductionRunDate) : -1;
+    const lastProdCooldownEnd = lastProdAbsWeek >= 0 ? lastProdAbsWeek + totalLeadWeeks - startWeekOffset : 0;
+
     const deferredPayments: { week: number; amount: number; label: string; category: string; expenseId: string; cycleId: number }[] = [];
     const scheduledExpenses: ScheduledExpense[] = [];
     const pipelineItems: PipelineItem[] = [];
@@ -364,8 +376,9 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
     let simInventory = inventoryOnHand;
     let simTubes = tubesOnHand;
     const triggers: { week: number; type: "production" | "tube_order"; cycleId: number }[] = [];
-    let simNextProd = 0;
+    let simNextProd = Math.max(0, lastProdCooldownEnd);
     let simNextTube = 0;
+    let tubeOrderPlaced = false;
     let simCycle = 0;
 
     for (let w = 0; w < weeks; w++) {
@@ -377,12 +390,24 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
         if (ps.arriveWeek === w && ps.type === "finished") simInventory += ps.qty;
       });
 
-      const tubeBuffer = weeklyVelocity * (tubeLeadWeeks + 4);
-      if (w >= simNextTube && simTubes < tubeBuffer) {
-        simCycle++;
-        triggers.push({ week: w, type: "tube_order", cycleId: simCycle });
-        simNextTube = w + tubeLeadWeeks + 2;
-        productionScheduled.push({ arriveWeek: w + tubeLeadWeeks, type: "tubes", qty: tubeOrderSize });
+      // Tube ordering: use manual date if set, otherwise auto-trigger
+      if (tubeOrderRelWeek >= 0) {
+        // Manual tube order on specified date
+        if (w === tubeOrderRelWeek && !tubeOrderPlaced) {
+          simCycle++;
+          triggers.push({ week: w, type: "tube_order", cycleId: simCycle });
+          simNextTube = w + tubeLeadWeeks + 2;
+          productionScheduled.push({ arriveWeek: w + tubeLeadWeeks, type: "tubes", qty: tubeOrderSize });
+          tubeOrderPlaced = true;
+        }
+      } else {
+        const tubeBuffer = weeklyVelocity * (tubeLeadWeeks + 4);
+        if (w >= simNextTube && simTubes < tubeBuffer) {
+          simCycle++;
+          triggers.push({ week: w, type: "tube_order", cycleId: simCycle });
+          simNextTube = w + tubeLeadWeeks + 2;
+          productionScheduled.push({ arriveWeek: w + tubeLeadWeeks, type: "tubes", qty: tubeOrderSize });
+        }
       }
 
       const bufferThreshold = weeklyVelocity * minWeeksStock;
@@ -390,7 +415,7 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
         const thisCycle = simCycle > 0 ? simCycle : ++simCycle;
         triggers.push({ week: w, type: "production", cycleId: thisCycle });
         simNextProd = w + totalLeadWeeks;
-        simTubes -= productionRunSize;
+        simTubes = Math.max(0, simTubes - productionRunSize);
         productionScheduled.push({ arriveWeek: w + productionLeadWeeks + freightToSabahWeeks, type: "finished", qty: productionRunSize });
 
         // Add annotation for inventory chart
@@ -637,8 +662,9 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
       });
 
       triggers.forEach(t => {
-        if (t.type === "production" && t.week === w) tubes -= productionRunSize;
+        if (t.type === "production" && t.week === w) tubes = Math.max(0, tubes - productionRunSize);
       });
+      tubes = Math.max(0, tubes);
 
       if (bufferHitWeek < 0 && inventory <= weeklyVelocity * minWeeksStock) {
         bufferHitWeek = w;
@@ -825,7 +851,11 @@ export function CashPlannerTab() {
         </div>
 
         <InputField label="Tube Order Size" value={inputs.tubeOrderSize} onChange={set("tubeOrderSize")} suffix="tubes" step={1000} />
+        <DateInputField label="Tube Order Date" value={inputs.tubeOrderDate} onChange={setStr("tubeOrderDate")} />
         <InputField label="Tube Cost Each" value={inputs.tubeCostPer} onChange={set("tubeCostPer")} prefix="$" step={0.01} />
+
+        <SidebarSection>Production History</SidebarSection>
+        <DateInputField label="Last Production Run Date" value={inputs.lastProductionRunDate} onChange={setStr("lastProductionRunDate")} />
       </ScrollArea>
 
       {/* ── MAIN CONTENT ──────────────────────────────────────── */}
@@ -836,9 +866,12 @@ export function CashPlannerTab() {
             <Button size="sm" variant="outline" className="h-8" onClick={goBack}>
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={goToNow}>
-              <CalendarDays className="h-3.5 w-3.5 mr-1" /> Today
-            </Button>
+            <div className="flex flex-col items-center">
+              <Button size="sm" variant="outline" className="h-8 text-xs" onClick={goToNow}>
+                <CalendarDays className="h-3.5 w-3.5 mr-1" /> Today
+              </Button>
+              <span className="text-[10px] text-muted-foreground mt-0.5 font-medium">{format(new Date(), "MMM d, yyyy")}</span>
+            </div>
             <Button size="sm" variant="outline" className="h-8" onClick={goForward}>
               <ChevronRight className="h-4 w-4" />
             </Button>
