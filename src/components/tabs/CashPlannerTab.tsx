@@ -192,13 +192,15 @@ function useModel(inputs: Inputs, startWeekOffset: number) {
     const pendingCashIn: { week: number; amount: number }[] = [];
     const productionScheduled: { arriveWeek: number; type: string; qty: number }[] = [];
     const weeklyData: any[] = [];
-    const actions: { week: number; type: string; text: string; cost: number }[] = [];
+    const actions: { week: number; type: string; text: string; cost: number; sanityNote?: string }[] = [];
     let tubeOrderPlaced = false;
     let productionPlaced = false;
 
     for (let w = 0; w < weeks; w++) {
       let weekCashIn = 0;
       let weekCashOut = 0;
+      const cashInBreakdown: { label: string; amount: number }[] = [];
+      const cashOutBreakdown: { label: string; amount: number }[] = [];
 
       const unitsSold = Math.min(weeklyVelocity, inventory);
       const faireSold = Math.min(faireUnits, Math.round(unitsSold * faireShare / 100));
@@ -211,14 +213,22 @@ function useModel(inputs: Inputs, startWeekOffset: number) {
       const weekRevenue = faireRev + wbcRev + dtcRev;
 
       weekCashIn += faireRev + dtcRev;
+      if (faireRev > 0) cashInBreakdown.push({ label: "Faire Revenue", amount: Math.round(faireRev) });
+      if (dtcRev > 0) cashInBreakdown.push({ label: "DTC Revenue", amount: Math.round(dtcRev) });
 
       const wbcPayWeek = w + Math.ceil(wbcPaymentDays / 7);
       if (wbcPayWeek < weeks) {
         pendingCashIn.push({ week: wbcPayWeek, amount: wbcRev });
       }
-      pendingCashIn.forEach((p) => { if (p.week === w) weekCashIn += p.amount; });
+      pendingCashIn.forEach((p) => { if (p.week === w) { weekCashIn += p.amount; cashInBreakdown.push({ label: "Wholesale (delayed)", amount: Math.round(p.amount) }); } });
 
+      const opexAmt = Math.round(weeklyOpex);
+      const wayAmt = Math.round(weeklyWayflier);
+      const dtcFulfill = Math.round(dtcSold * dtcFulfillmentPerUnit);
       weekCashOut += weeklyOpex + weeklyWayflier + dtcSold * dtcFulfillmentPerUnit;
+      cashOutBreakdown.push({ label: "OpEx", amount: opexAmt });
+      cashOutBreakdown.push({ label: "Wayflyer", amount: wayAmt });
+      if (dtcFulfill > 0) cashOutBreakdown.push({ label: "DTC Fulfillment", amount: dtcFulfill });
       inventory -= unitsSold;
 
       // Tube reorder
@@ -226,7 +236,10 @@ function useModel(inputs: Inputs, startWeekOffset: number) {
         const cost = tubeOrderSize * tubeCostPer;
         weekCashOut += cost;
         tubeOrderPlaced = true;
-        actions.push({ week: w, type: "tube_order", text: `Order ${tubeOrderSize.toLocaleString()} tubes — $${cost.toLocaleString()}`, cost });
+        const tubeWeeksSupply = (tubeOrderSize / weeklyVelocity).toFixed(0);
+        const sanityNote = `${tubeOrderSize.toLocaleString()} tubes at current velocity (${weeklyVelocity.toLocaleString()}/wk) = ${tubeWeeksSupply} weeks of tube supply. At $${tubeCostPer}/tube = $${Math.round(cost).toLocaleString()} cash outlay.`;
+        actions.push({ week: w, type: "tube_order", text: `Order ${tubeOrderSize.toLocaleString()} tubes — $${cost.toLocaleString()}`, cost, sanityNote });
+        cashOutBreakdown.push({ label: `Tube Order (${(tubeOrderSize/1000).toFixed(0)}k)`, amount: Math.round(cost) });
         productionScheduled.push({ arriveWeek: w + tubeLeadWeeks, type: "tubes", qty: tubeOrderSize });
       }
 
@@ -243,6 +256,9 @@ function useModel(inputs: Inputs, startWeekOffset: number) {
         productionPlaced = true;
         tubes -= productionRunSize;
         actions.push({ week: w, type: "production", text: `Production run — ${productionRunSize.toLocaleString()} units — $${Math.round(totalProdCost).toLocaleString()}`, cost: totalProdCost });
+        cashOutBreakdown.push({ label: "COGS — Ingredients", amount: Math.round(productionRunSize * ingredientCostPerUnit) });
+        cashOutBreakdown.push({ label: "COGS — Production", amount: Math.round(productionRunSize * productionCostPerUnit) });
+        cashOutBreakdown.push({ label: "COGS — Freight", amount: Math.round(freightPerRun) });
         productionScheduled.push({ arriveWeek: w + productionLeadWeeks + freightToSabahWeeks, type: "finished", qty: productionRunSize });
       }
 
@@ -256,6 +272,7 @@ function useModel(inputs: Inputs, startWeekOffset: number) {
         netCash: Math.round(weekCashIn - weekCashOut), cashBalance: Math.round(cashBalance),
         inventory, tubes, unitsSold, revenue: Math.round(weekRevenue),
         weeksOfStock: inventory > 0 ? +(inventory / weeklyVelocity).toFixed(1) : 0,
+        cashInBreakdown, cashOutBreakdown,
       });
     }
 
@@ -288,6 +305,41 @@ const C_BLUE = "hsl(199, 89%, 48%)";
 const C_GOLD = "hsl(43, 52%, 54%)";
 const C_ORANGE = "hsl(38, 92%, 50%)";
 
+// ── Custom tooltip for cash forecast ────────────────────────────────
+function CashBreakdownTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  const data = payload[0]?.payload;
+  if (!data) return null;
+  return (
+    <div className="bg-background border border-border rounded-lg shadow-xl px-3 py-2 text-xs max-w-[260px]">
+      <div className="font-bold mb-1.5 text-foreground">{label}</div>
+      <div className="font-semibold text-foreground mb-1">Cash Balance: {fmt(data.cashBalance)}</div>
+      {data.cashInBreakdown?.length > 0 && (
+        <div className="mb-1.5">
+          <div className="text-[10px] font-bold tracking-wide text-muted-foreground uppercase mb-0.5">Inflows ({fmt(data.cashIn)})</div>
+          {data.cashInBreakdown.map((item: any, i: number) => (
+            <div key={i} className="flex justify-between gap-3">
+              <span className="text-muted-foreground">{item.label}</span>
+              <span className="font-mono font-semibold" style={{ color: C_GREEN }}>{fmt(item.amount)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {data.cashOutBreakdown?.length > 0 && (
+        <div>
+          <div className="text-[10px] font-bold tracking-wide text-muted-foreground uppercase mb-0.5">Outflows ({fmt(data.cashOut)})</div>
+          {data.cashOutBreakdown.map((item: any, i: number) => (
+            <div key={i} className="flex justify-between gap-3">
+              <span className="text-muted-foreground">{item.label}</span>
+              <span className="font-mono font-semibold" style={{ color: C_RED }}>{fmt(item.amount)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════
 export function CashPlannerTab() {
   const [inputs, setInputs] = useState<Inputs>(loadSavedInputs);
@@ -305,9 +357,9 @@ export function CashPlannerTab() {
   }, [inputs]);
 
   const handleReset = useCallback(() => {
-    setInputs(defaultInputs);
-    localStorage.removeItem(STORAGE_KEY);
-    toast({ title: "Inputs reset", description: "Model inputs restored to defaults." });
+    const saved = loadSavedInputs();
+    setInputs(saved);
+    toast({ title: "Inputs refreshed", description: "Restored from last save." });
   }, []);
 
   return (
@@ -419,7 +471,7 @@ export function CashPlannerTab() {
                   <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
                   <XAxis dataKey="label" tick={{ fontSize: 11 }} className="fill-muted-foreground" />
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={fmtK} className="fill-muted-foreground" />
-                  <Tooltip formatter={(v: number, name: string) => [fmt(v), name]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                  <Tooltip content={<CashBreakdownTooltip />} />
                   <ReferenceLine y={5000} stroke={C_RED} strokeDasharray="4 4" label={{ value: "DANGER", fill: C_RED, fontSize: 10 }} />
                   <ReferenceLine y={10000} stroke={C_ORANGE} strokeDasharray="4 4" label={{ value: "LOW", fill: C_ORANGE, fontSize: 10 }} />
                   <Bar dataKey="cashIn" name="Cash In" fill={C_GREEN} opacity={0.6} radius={[3, 3, 0, 0]} />
@@ -441,6 +493,46 @@ export function CashPlannerTab() {
                   <Bar dataKey="netCash" name="Net Cash Flow" fill={C_BLUE} radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
+            </CardContent></Card>
+
+            <SectionHeader sub="Line-by-line breakdown of weekly inflows and outflows">WEEKLY BREAKDOWN</SectionHeader>
+            <Card><CardContent className="pt-4 overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left py-1.5 px-2 font-bold text-muted-foreground">Week</th>
+                    <th className="text-left py-1.5 px-2 font-bold" style={{ color: C_GREEN }}>Inflows</th>
+                    <th className="text-left py-1.5 px-2 font-bold" style={{ color: C_RED }}>Outflows</th>
+                    <th className="text-right py-1.5 px-2 font-bold text-foreground">Net</th>
+                    <th className="text-right py-1.5 px-2 font-bold text-foreground">Balance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {model.weeklyData.map((d: any, i: number) => (
+                    <tr key={i} className={`border-b border-border/50 ${d.isCurrent ? "bg-accent/10" : ""}`}>
+                      <td className={`py-1.5 px-2 font-semibold ${d.isCurrent ? "text-accent" : "text-foreground"}`}>{d.label}</td>
+                      <td className="py-1.5 px-2">
+                        {d.cashInBreakdown?.map((item: any, j: number) => (
+                          <div key={j} className="flex justify-between gap-2">
+                            <span className="text-muted-foreground">{item.label}</span>
+                            <span className="font-mono" style={{ color: C_GREEN }}>{fmt(item.amount)}</span>
+                          </div>
+                        ))}
+                      </td>
+                      <td className="py-1.5 px-2">
+                        {d.cashOutBreakdown?.map((item: any, j: number) => (
+                          <div key={j} className="flex justify-between gap-2">
+                            <span className="text-muted-foreground">{item.label}</span>
+                            <span className="font-mono" style={{ color: C_RED }}>{fmt(item.amount)}</span>
+                          </div>
+                        ))}
+                      </td>
+                      <td className={`py-1.5 px-2 text-right font-mono font-semibold ${d.netCash >= 0 ? "text-foreground" : "text-destructive"}`}>{fmt(d.netCash)}</td>
+                      <td className={`py-1.5 px-2 text-right font-mono font-semibold ${d.cashBalance < 5000 ? "text-destructive" : "text-foreground"}`}>{fmt(d.cashBalance)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </CardContent></Card>
           </TabsContent>
 
@@ -578,6 +670,11 @@ export function CashPlannerTab() {
                           {weekLabel(startWeekOffset + a.week)} — {a.type === "tube_order" ? "TUBE ORDER" : "PRODUCTION RUN"}
                         </div>
                         <div className="text-sm font-semibold mt-1">{a.text}</div>
+                        {a.sanityNote && (
+                          <div className="text-[11px] text-muted-foreground mt-1.5 p-2 bg-muted rounded">
+                            📐 <strong>Sanity check:</strong> {a.sanityNote}
+                          </div>
+                        )}
                       </div>
                       <div className="text-lg font-bold font-mono text-destructive">-{fmt(a.cost)}</div>
                     </CardContent>
