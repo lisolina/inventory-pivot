@@ -98,6 +98,9 @@ const defaultInputs = {
   // Tube order & production history
   tubeOrderDate: "",
   lastProductionRunDate: "2026-02-16",
+  // Dual buffer & PO timing
+  tubeBufferWeeks: 9,
+  poToProductionWeeks: 4,
 };
 
 const STORAGE_KEY = "lisolina-planner-inputs";
@@ -138,6 +141,7 @@ interface ProductionTriggerAnnotation {
   absWeek: number;
   label: string;
   runSize: number;
+  poType: "production" | "tube_order";
 }
 
 function loadSavedInputs(): Inputs {
@@ -281,22 +285,24 @@ function ProductionRunArrows({ xAxisMap, yAxisMap, annotations }: { xAxisMap: an
         const xPos = xVal + (xAxis.bandSize ? xAxis.bandSize / 2 : 0);
         const yTop = yAxis.y || 5;
         const arrowSize = 6;
+        const isProd = ann.poType === "production";
+        const color = isProd ? C_PURPLE : C_GOLD;
+        const emoji = isProd ? "🏭" : "📦";
+        const tooltipText = isProd
+          ? `Recommended PO submission — Production (${ann.runSize.toLocaleString()} units)`
+          : `Recommended PO submission — Tube Order (${ann.runSize.toLocaleString()} tubes)`;
         return (
           <g key={i}>
-            {/* Arrow line */}
-            <line x1={xPos} y1={yTop + 2} x2={xPos} y2={yTop + 22} stroke={C_PURPLE} strokeWidth={2} />
-            {/* Arrow head */}
+            <line x1={xPos} y1={yTop + 2} x2={xPos} y2={yTop + 22} stroke={color} strokeWidth={2} />
             <polygon
               points={`${xPos},${yTop + 22} ${xPos - arrowSize},${yTop + 14} ${xPos + arrowSize},${yTop + 14}`}
-              fill={C_PURPLE}
+              fill={color}
             />
-            {/* Label */}
-            <text x={xPos} y={yTop} textAnchor="middle" fontSize={9} fontWeight="bold" fill={C_PURPLE}>
-              🏭
+            <text x={xPos} y={yTop} textAnchor="middle" fontSize={9} fontWeight="bold" fill={color}>
+              {emoji}
             </text>
-            {/* Invisible hover rect for tooltip (Recharts doesn't support custom tooltips on Customized easily, so we use title) */}
             <rect x={xPos - 15} y={yTop} width={30} height={25} fill="transparent" style={{ cursor: "pointer" }}>
-              <title>Production run forecast — {ann.runSize.toLocaleString()} units</title>
+              <title>{tooltipText}</title>
             </rect>
           </g>
         );
@@ -320,6 +326,7 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
       tubePaymentPct1, tubePaymentPct2, ingredientLeadWeeks, aesNetDays,
       ingredientFundingDate, productionFundingDate, freightFundingDate,
       tubeOrderDate, lastProductionRunDate,
+      tubeBufferWeeks, poToProductionWeeks,
     } = inputs;
 
     const faireUnits = Math.round(weeklyVelocity * faireShare / 100);
@@ -337,6 +344,7 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
 
     const tubePct1 = tubePaymentPct1 / 100;
     const tubePct2 = tubePaymentPct2 / 100;
+    const tubeBufferThreshold = weeklyVelocity * tubeBufferWeeks;
     const tubePct3 = Math.max(0, 1 - tubePct1 - tubePct2);
     const tubeMidpointWeek = Math.round(tubeLeadWeeks / 2);
     const aesNetWeeks = Math.ceil(aesNetDays / 7);
@@ -390,40 +398,46 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
         if (ps.arriveWeek === w && ps.type === "finished") simInventory += ps.qty;
       });
 
-      // Tube ordering: use manual date if set, otherwise auto-trigger
+      // Tube ordering: use manual date if set, otherwise auto-trigger based on tube buffer
       if (tubeOrderRelWeek >= 0) {
-        // Manual tube order on specified date
         if (w === tubeOrderRelWeek && !tubeOrderPlaced) {
           simCycle++;
           triggers.push({ week: w, type: "tube_order", cycleId: simCycle });
           simNextTube = w + tubeLeadWeeks + 2;
           productionScheduled.push({ arriveWeek: w + tubeLeadWeeks, type: "tubes", qty: tubeOrderSize });
           tubeOrderPlaced = true;
+          productionAnnotations.push({
+            relWeek: w, absWeek: startWeekOffset + w,
+            label: weekLabel(startWeekOffset + w), runSize: tubeOrderSize, poType: "tube_order",
+          });
         }
       } else {
-        const tubeBuffer = weeklyVelocity * (tubeLeadWeeks + 4);
-        if (w >= simNextTube && simTubes < tubeBuffer) {
+        if (w >= simNextTube && simTubes < tubeBufferThreshold) {
           simCycle++;
           triggers.push({ week: w, type: "tube_order", cycleId: simCycle });
           simNextTube = w + tubeLeadWeeks + 2;
           productionScheduled.push({ arriveWeek: w + tubeLeadWeeks, type: "tubes", qty: tubeOrderSize });
+          productionAnnotations.push({
+            relWeek: w, absWeek: startWeekOffset + w,
+            label: weekLabel(startWeekOffset + w), runSize: tubeOrderSize, poType: "tube_order",
+          });
         }
       }
 
       const bufferThreshold = weeklyVelocity * minWeeksStock;
       if (w >= simNextProd && simInventory <= bufferThreshold) {
         const thisCycle = simCycle > 0 ? simCycle : ++simCycle;
-        triggers.push({ week: w, type: "production", cycleId: thisCycle });
-        simNextProd = w + totalLeadWeeks;
+        const poWeek = w; // PO recommended at buffer hit
+        const actualProductionStart = w + poToProductionWeeks; // production starts later
+        triggers.push({ week: actualProductionStart, type: "production", cycleId: thisCycle });
+        simNextProd = actualProductionStart + totalLeadWeeks;
         simTubes = Math.max(0, simTubes - productionRunSize);
-        productionScheduled.push({ arriveWeek: w + productionLeadWeeks + freightToSabahWeeks, type: "finished", qty: productionRunSize });
+        productionScheduled.push({ arriveWeek: actualProductionStart + productionLeadWeeks + freightToSabahWeeks, type: "finished", qty: productionRunSize });
 
-        // Add annotation for inventory chart
+        // Annotation at PO recommendation date (buffer hit), not production start
         productionAnnotations.push({
-          relWeek: w,
-          absWeek: startWeekOffset + w,
-          label: weekLabel(startWeekOffset + w),
-          runSize: productionRunSize,
+          relWeek: poWeek, absWeek: startWeekOffset + poWeek,
+          label: weekLabel(startWeekOffset + poWeek), runSize: productionRunSize, poType: "production",
         });
       }
     }
@@ -592,6 +606,7 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
 
     let bufferHitWeek = -1;
     let oosWeek = -1;
+    let tubeBufferHitWeek = -1;
 
     for (let w = 0; w < weeks; w++) {
       let weekCashIn = 0;
@@ -672,6 +687,9 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
       if (oosWeek < 0 && inventory <= 0) {
         oosWeek = w;
       }
+      if (tubeBufferHitWeek < 0 && tubes <= tubeBufferThreshold) {
+        tubeBufferHitWeek = w;
+      }
 
       cashBalance += weekCashIn - weekCashOut;
       const absWeek = startWeekOffset + w;
@@ -683,6 +701,7 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
         weeksOfStock: inventory > 0 ? +(inventory / weeklyVelocity).toFixed(1) : 0,
         cashInBreakdown, cashOutBreakdown,
         bufferLevel: weeklyVelocity * minWeeksStock,
+        tubeBufferLevel: tubeBufferThreshold,
       });
     }
 
@@ -700,7 +719,7 @@ function useModel(inputs: Inputs, startWeekOffset: number, approvals: Record<str
       faireContrib, wbcContrib, dtcContrib, blendedContribPerUnit, blendedMargin,
       weeksOfStock, totalLeadWeeks, weeklyContrib,
       faireUnits, wbcUnits, dtcUnits, weeklyOpex, weeklyWayflier: avgWeeklyWayflier, blendedRevPerUnit,
-      scheduledExpenses, pipelineItems, cascadeActions, bufferHitWeek, oosWeek,
+      scheduledExpenses, pipelineItems, cascadeActions, bufferHitWeek, oosWeek, tubeBufferHitWeek,
       productionAnnotations,
     };
   }, [inputs, startWeekOffset, approvals]);
@@ -826,6 +845,8 @@ export function CashPlannerTab() {
         <InputField label="AES → Sabah Freight" value={inputs.freightToSabahWeeks} onChange={set("freightToSabahWeeks")} suffix="weeks" />
         <InputField label="Ingredient Lead Time" value={inputs.ingredientLeadWeeks} onChange={set("ingredientLeadWeeks")} suffix="weeks" />
         <InputField label="Min Stock Buffer" value={inputs.minWeeksStock} onChange={set("minWeeksStock")} suffix="weeks" />
+        <InputField label="Tube Buffer" value={inputs.tubeBufferWeeks} onChange={set("tubeBufferWeeks")} suffix="weeks" />
+        <InputField label="PO → Production Delay" value={inputs.poToProductionWeeks} onChange={set("poToProductionWeeks")} suffix="weeks" />
 
         <SidebarSection>Payment Terms</SidebarSection>
         <InputField label="Tube Deposit %" value={inputs.tubePaymentPct1} onChange={set("tubePaymentPct1")} suffix="%" step={5} />
@@ -896,6 +917,12 @@ export function CashPlannerTab() {
             value={model.bufferHitWeek >= 0 ? weekLabel(startWeekOffset + model.bufferHitWeek) : "None in 16wk"}
             sub={model.bufferHitWeek >= 0 ? `Hits ${inputs.minWeeksStock}wk buffer` : "Buffer maintained"}
             variant={model.bufferHitWeek >= 0 && model.bufferHitWeek < 6 ? "danger" : model.bufferHitWeek >= 0 ? "warning" : "success"}
+          />
+          <MetricCard
+            icon={Package} label="Tube Buffer Hit"
+            value={model.tubeBufferHitWeek >= 0 ? weekLabel(startWeekOffset + model.tubeBufferHitWeek) : "None in 16wk"}
+            sub={model.tubeBufferHitWeek >= 0 ? `Tubes below ${inputs.tubeBufferWeeks}wk buffer` : "Tube buffer maintained"}
+            variant={model.tubeBufferHitWeek >= 0 && model.tubeBufferHitWeek < 4 ? "danger" : model.tubeBufferHitWeek >= 0 ? "warning" : "success"}
           />
           <MetricCard
             icon={AlertTriangle} label="Out of Stock"
@@ -1065,6 +1092,7 @@ export function CashPlannerTab() {
                   <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} label={{ value: "Tubes", angle: 90, position: "insideRight", style: { fontSize: 10 } }} />
                   <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
                   <ReferenceLine yAxisId="left" y={inputs.weeklyVelocity * inputs.minWeeksStock} stroke={C_ORANGE} strokeDasharray="4 4" label={{ value: `${inputs.minWeeksStock}wk buffer`, fill: C_ORANGE, fontSize: 10 }} />
+                  <ReferenceLine yAxisId="right" y={inputs.weeklyVelocity * inputs.tubeBufferWeeks} stroke={C_GOLD} strokeDasharray="4 4" label={{ value: `Tube ${inputs.tubeBufferWeeks}wk buffer`, fill: C_GOLD, fontSize: 10, position: "right" }} />
                   <ReferenceLine yAxisId="left" y={0} stroke={C_RED} strokeWidth={2} />
                   <Line yAxisId="left" dataKey="inventory" name="Finished Product" stroke={C_NAVY} strokeWidth={2.5} dot={{ r: 3 }} />
                   <Line yAxisId="right" dataKey="tubes" name="Tubes at AES" stroke={C_GOLD} strokeWidth={2} dot={{ r: 2 }} strokeDasharray="5 3" />
@@ -1078,9 +1106,16 @@ export function CashPlannerTab() {
                 </ComposedChart>
               </ResponsiveContainer>
               {model.productionAnnotations.length > 0 && (
-                <div className="flex items-center gap-2 mt-2 text-[11px] text-muted-foreground">
-                  <span style={{ color: C_PURPLE }}>🏭</span>
-                  <span>= Production run forecast date (hover for details)</span>
+                <div className="flex items-center gap-4 mt-2 text-[11px] text-muted-foreground">
+                  <div className="flex items-center gap-1">
+                    <span style={{ color: C_PURPLE }}>🏭</span>
+                    <span>= Production PO recommendation</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span style={{ color: C_GOLD }}>📦</span>
+                    <span>= Tube PO recommendation</span>
+                  </div>
+                  <span className="italic">(hover for details)</span>
                 </div>
               )}
             </CardContent></Card>
