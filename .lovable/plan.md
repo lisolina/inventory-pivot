@@ -1,32 +1,34 @@
 
 
-## Plan: Consolidate All Inputs into Sidebar with Production Detail
+## Plan: Editable Expense Forecast + Single Y-Axis Inventory Chart
 
-**Status: IMPLEMENTED**
+### Two changes
 
-### What changed
+**1. Make all expense forecast rows editable (not just manual ones)**
 
-All simulation inputs are now consolidated in the sidebar. The flat "Schedule" sub-tab has been replaced by structured **Production & Packaging Orders** (collapsible cards) and **Production History** (collapsible date+qty rows) in the sidebar.
+Currently only rows with `manual-` prefix IDs show inline edit fields. Auto-generated expenses (from production orders, Wayflyer, OpEx, etc.) display read-only text. The fix:
+- Make all rows editable inline — date, description, category, and amount fields render as inputs for every row
+- When an auto-generated expense is edited, save the override to a `savedExpenseOverrides` map in localStorage keyed by expense ID
+- On render, merge overrides back onto the generated data so edits persist across refreshes
+- Add a small "reset" icon per row to revert an overridden auto-generated expense back to its computed value
 
-### Data model
+**2. Single Y-axis on Inventory chart capped at 50k**
 
-```typescript
-interface FundingTranche { id: string; pct: number; date: string; }
-interface ProductionOrder {
-  id: string; tubesQty: number; tubeCostTotal: number;
-  fundingTranches: FundingTranche[];
-  shipDate: string; shippingMethod: "air" | "ocean";
-  landedDateAES: string; productionRunDate: string; runSize: number;
-  freightToSabahDate: string; arrivalDateSabah: string;
-}
-interface ProductionHistoryEntry { id: string; date: string; qty: number; }
-```
+Currently the chart has dual Y-axes: `yAxisId="left"` for Finished Units and `yAxisId="right"` for Tubes. This is confusing because the two scales diverge.
 
-### How it works
+Fix:
+- Remove the right Y-axis entirely
+- Put both `inventory` (Finished Product) and `tubes` (Tubes at AES) lines on a single Y-axis with `domain={[0, 50000]}`
+- Both lines share the same scale so their heights are directly comparable
+- Update reference lines to use the single axis
+- Update tick formatter to show `0`, `10k`, `20k`, `30k`, `40k`, `50k`
 
-`productionOrdersToSCEvents()` converts structured orders into the same `SupplyChainEvent[]` format that `useModel` already consumes. The Schedule tab was removed. Auto-trigger fallback logic is preserved for cycles beyond manually scheduled orders.
+### Files to edit
 
-### Default orders (pre-populated)
+**`src/components/tabs/CashPlannerTab.tsx`**:
+1. Add `expenseOverrides` state (localStorage-persisted `Record<string, Partial<ScheduledExpense>>`)
+2. In expense forecast table: render all rows with inline inputs (date, description, category dropdown, amount), not just manual ones
+3. On change for auto-generated rows, save delta to `expenseOverrides`; merge overrides in `useMemo` that produces final expense list
+4. Add per-row reset button for overridden auto-generated expenses
+5. In Inventory chart (lines ~1644-1664): remove `yAxisId="right"`, set single `<YAxis domain={[0, 50000]}` with label "Units", assign both Line components to the single axis, remove the right-side YAxis, update both ReferenceLine components to use the single axis
 
-- **Order 1 (Air)**: 15k tubes, $9,300 cost, 3 tranches (25%/25%/50%), air freight Apr 12, production May 10, arrives Sabah May 24
-- **Order 2 (Ocean)**: 15k tubes, no additional cost, ocean freight May 3, production May 17, arrives Sabah May 31
