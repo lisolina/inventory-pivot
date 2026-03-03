@@ -93,31 +93,17 @@ export const WorldBuildingTab = () => {
     if (!nlInput.trim()) return;
     setNlParsing(true);
     try {
-      const res = await supabase.functions.invoke("chat", {
+      const { data: resData, error: invokeError } = await supabase.functions.invoke("chat", {
         body: {
           messages: [
             { role: "system", content: `You are a task extraction assistant. Extract every distinct task from the user's input for a "World Building" tracker. Categories (pick the best fit): substack, lovable, website, artifacts, merch. Return ONLY a valid JSON array, no markdown fences, no explanation. Format: [{"title":"...","category":"...","priority":"high|medium|low"}]. If a task mentions Substack or articles, use "substack". If it mentions Lovable or building/coding, use "lovable". If it mentions website, .world, or pages, use "website". If it mentions design, photography, packaging, or artwork, use "artifacts". If it mentions merch, hats, shirts, books, Shopify, or bundles, use "merch". Default priority to "medium" unless urgency is implied.` },
             { role: "user", content: nlInput },
           ],
+          stream: false,
         },
       });
-      if (res.error) throw res.error;
-      const reader = res.data instanceof ReadableStream ? res.data.getReader() : null;
-      let fullText = "";
-      if (reader) {
-        const decoder = new TextDecoder();
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const chunk = decoder.decode(value);
-          for (const line of chunk.split("\n")) {
-            if (line.startsWith("data: ") && line !== "data: [DONE]") {
-              try { const j = JSON.parse(line.slice(6)); const d = j.choices?.[0]?.delta?.content; if (d) fullText += d; } catch {}
-            }
-          }
-        }
-      }
-      // Strip markdown fences if present
+      if (invokeError) throw invokeError;
+      const fullText = resData?.choices?.[0]?.message?.content || "";
       let cleaned = fullText.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
       const m = cleaned.match(/\[[\s\S]*\]/);
       if (m) setParsedTasks(JSON.parse(m[0]));
