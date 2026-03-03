@@ -139,6 +139,23 @@ interface ProductionHistoryEntry {
 
 const PROD_ORDERS_STORAGE_KEY = "lisolina-prod-orders";
 const PROD_HISTORY_STORAGE_KEY = "lisolina-prod-history";
+const MANUAL_EXPENSES_STORAGE_KEY = "lisolina-manual-expenses";
+
+interface ManualExpense {
+  id: string;
+  date: string; // YYYY-MM-DD
+  description: string;
+  amount: number;
+  category: "tubes" | "ingredients" | "production" | "freight" | "fixed" | "wayflyer";
+}
+
+function loadSavedManualExpenses(): ManualExpense[] {
+  try {
+    const saved = localStorage.getItem(MANUAL_EXPENSES_STORAGE_KEY);
+    if (saved) return JSON.parse(saved);
+  } catch {}
+  return [];
+}
 
 const defaultProductionOrders: ProductionOrder[] = [
   {
@@ -195,7 +212,9 @@ function loadSavedProductionHistory(): ProductionHistoryEntry[] {
 
 function productionOrdersToSCEvents(orders: ProductionOrder[]): SupplyChainEvent[] {
   const events: SupplyChainEvent[] = [];
-  for (const order of orders) {
+  for (let oi = 0; oi < orders.length; oi++) {
+    const order = orders[oi];
+    const orderLabel = orders.length > 1 ? ` (Order ${oi + 1})` : "";
     // Funding tranches → tube payments
     order.fundingTranches.forEach((tranche, i) => {
       const cost = Math.round(order.tubeCostTotal * tranche.pct / 100);
@@ -206,8 +225,8 @@ function productionOrdersToSCEvents(orders: ProductionOrder[]): SupplyChainEvent
           type: i === 0 ? "tube_order" : "tube_payment",
           product: "tubes",
           description: i === 0
-            ? `${order.tubesQty.toLocaleString()} tubes, ${tranche.pct}% deposit`
-            : `Tube payment ${tranche.pct}%`,
+            ? `${order.tubesQty.toLocaleString()} tubes, ${tranche.pct}% deposit${orderLabel}`
+            : `Tube payment ${tranche.pct}%${orderLabel}`,
           qty: i === 0 ? order.tubesQty : 0,
           cost,
         });
@@ -221,7 +240,7 @@ function productionOrdersToSCEvents(orders: ProductionOrder[]): SupplyChainEvent
         date: order.landedDateAES,
         type: "tube_arrival",
         product: "tubes",
-        description: `${order.shippingMethod === "air" ? "Air" : "Ocean"} — ${order.tubesQty.toLocaleString()} tubes`,
+        description: `${order.shippingMethod === "air" ? "Air" : "Ocean"} — ${order.tubesQty.toLocaleString()} tubes${orderLabel}`,
         qty: order.tubesQty,
         cost: 0,
       });
@@ -234,7 +253,7 @@ function productionOrdersToSCEvents(orders: ProductionOrder[]): SupplyChainEvent
         date: order.productionRunDate,
         type: "production_start",
         product: "tubes",
-        description: `Run — ${order.runSize.toLocaleString()} tubes consumed`,
+        description: `Run — ${order.runSize.toLocaleString()} tubes consumed${orderLabel}`,
         qty: order.runSize,
         cost: 0,
       });
@@ -247,7 +266,7 @@ function productionOrdersToSCEvents(orders: ProductionOrder[]): SupplyChainEvent
         date: order.arrivalDateSabah,
         type: "freight_arrival",
         product: "finished_product",
-        description: `${order.runSize.toLocaleString()} units at Sabah`,
+        description: `${order.runSize.toLocaleString()} units at Sabah${orderLabel}`,
         qty: order.runSize,
         cost: 0,
       });
@@ -512,7 +531,7 @@ function ProductionRunArrows({ xAxisMap, yAxisMap, annotations }: { xAxisMap: an
 }
 
 // ── Core planner model (full-year simulation with sliding 16-week view) ──
-function useModel(inputs: Inputs, startWeekOffset: number, todayWeekOffset: number, approvals: Record<string, boolean>, scEvents: SupplyChainEvent[]) {
+function useModel(inputs: Inputs, startWeekOffset: number, todayWeekOffset: number, approvals: Record<string, boolean>, scEvents: SupplyChainEvent[], manualExpenses: ManualExpense[]) {
   return useMemo(() => {
     const yearEndAbsWeek = differenceInWeeks(new Date(2026, 11, 31), EPOCH);
     const totalSimWeeks = Math.max(16, yearEndAbsWeek - todayWeekOffset + 1);
@@ -902,7 +921,33 @@ function useModel(inputs: Inputs, startWeekOffset: number, todayWeekOffset: numb
       }
     }
 
-    // ── Second pass: actual cash simulation with deferred payments (full year) ──
+    // ── Inject manual expenses ──
+    for (const me of manualExpenses) {
+      const absWeek = dateToWeekIndex(me.date);
+      const relWeek = absWeek - todayWeekOffset;
+      if (relWeek >= 0 && relWeek < totalSimWeeks) {
+        const id = `manual-${me.id}`;
+        scheduledExpenses.push({
+          id, weekIndex: relWeek, absWeek, dateLabel: weekLabel(absWeek),
+          description: me.description, amount: me.amount, category: me.category,
+          approved: approvals[id] !== false, cycleId: 0,
+        });
+        deferredPayments.push({ week: relWeek, amount: me.amount, label: me.description, category: me.category, expenseId: id, cycleId: 0 });
+      }
+    }
+
+    // ── Deduplicate scheduled expenses by ID ──
+    const seenIds = new Set<string>();
+    const deduped: ScheduledExpense[] = [];
+    for (const exp of scheduledExpenses) {
+      if (!seenIds.has(exp.id)) {
+        seenIds.add(exp.id);
+        deduped.push(exp);
+      }
+    }
+    scheduledExpenses.length = 0;
+    scheduledExpenses.push(...deduped);
+
     inventory = inventoryOnHand;
     tubes = tubesOnHand;
     cashBalance = cashOnHand;
@@ -1070,7 +1115,7 @@ function useModel(inputs: Inputs, startWeekOffset: number, todayWeekOffset: numb
       tubeBufferHitAbsWeek: tubeBufferHitWeek >= 0 ? todayWeekOffset + tubeBufferHitWeek : -1,
       productionAnnotations: visibleAnnotations,
     };
-  }, [inputs, startWeekOffset, todayWeekOffset, approvals, scEvents]);
+  }, [inputs, startWeekOffset, todayWeekOffset, approvals, scEvents, manualExpenses]);
 }
 
 // ── Custom tooltip for cash forecast ────────────────────────────────
@@ -1125,6 +1170,7 @@ export function CashPlannerTab() {
   const [approvals, setApprovals] = useState<Record<string, boolean>>(loadSavedApprovals);
   const [productionOrders, setProductionOrders] = useState<ProductionOrder[]>(loadSavedProductionOrders);
   const [productionHistory, setProductionHistory] = useState<ProductionHistoryEntry[]>(loadSavedProductionHistory);
+  const [manualExpenses, setManualExpenses] = useState<ManualExpense[]>(loadSavedManualExpenses);
   const [ordersOpen, setOrdersOpen] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(false);
   const set = useCallback((key: keyof Inputs) => (val: number) => setInputs((p) => ({ ...p, [key]: val })), []);
@@ -1144,7 +1190,7 @@ export function CashPlannerTab() {
     lastProductionRunDate: latestHistoryDate,
   }), [inputs, latestHistoryDate]);
 
-  const model = useModel(effectiveInputs, startWeekOffset, todayWeek, approvals, scEvents);
+  const model = useModel(effectiveInputs, startWeekOffset, todayWeek, approvals, scEvents, manualExpenses);
 
   const goBack = () => setStartWeekOffset((o) => Math.max(todayWeek, o - 4));
   const goForward = () => setStartWeekOffset((o) => Math.min(yearEndAbsWeek - 15, o + 4));
@@ -1155,19 +1201,51 @@ export function CashPlannerTab() {
     localStorage.setItem(APPROVALS_KEY, JSON.stringify(approvals));
     localStorage.setItem(PROD_ORDERS_STORAGE_KEY, JSON.stringify(productionOrders));
     localStorage.setItem(PROD_HISTORY_STORAGE_KEY, JSON.stringify(productionHistory));
-    toast({ title: "Inputs saved", description: "Model inputs, approvals, and production orders saved." });
-  }, [inputs, approvals, productionOrders, productionHistory]);
+    localStorage.setItem(MANUAL_EXPENSES_STORAGE_KEY, JSON.stringify(manualExpenses));
+    toast({ title: "Inputs saved", description: "Model inputs, approvals, and expenses saved." });
+  }, [inputs, approvals, productionOrders, productionHistory, manualExpenses]);
 
   const handleReset = useCallback(() => {
     setInputs(loadSavedInputs());
     setApprovals(loadSavedApprovals());
     setProductionOrders(loadSavedProductionOrders());
     setProductionHistory(loadSavedProductionHistory());
+    setManualExpenses(loadSavedManualExpenses());
     toast({ title: "Inputs refreshed", description: "Restored from last save." });
   }, []);
 
   const toggleApproval = useCallback((id: string) => {
     setApprovals(prev => ({ ...prev, [id]: prev[id] === false ? true : false }));
+  }, []);
+
+  // Manual expense CRUD
+  const addManualExpense = useCallback(() => {
+    setManualExpenses(prev => [...prev, {
+      id: `me-${Date.now()}`,
+      date: format(new Date(), "yyyy-MM-dd"),
+      description: "",
+      amount: 0,
+      category: "fixed",
+    }]);
+  }, []);
+
+  const updateManualExpense = useCallback((id: string, field: keyof ManualExpense, value: any) => {
+    setManualExpenses(prev => prev.map(e => e.id === id ? { ...e, [field]: value } : e));
+  }, []);
+
+  const deleteManualExpense = useCallback((id: string) => {
+    setManualExpenses(prev => prev.filter(e => e.id !== id));
+  }, []);
+
+  const deleteExpense = useCallback((expenseId: string) => {
+    // For manual expenses, remove from state
+    if (expenseId.startsWith("manual-")) {
+      const realId = expenseId.replace("manual-", "");
+      setManualExpenses(prev => prev.filter(e => e.id !== realId));
+    } else {
+      // For generated expenses, set approval to false (hide)
+      setApprovals(prev => ({ ...prev, [expenseId]: false }));
+    }
   }, []);
 
   // Production order CRUD
@@ -1737,61 +1815,100 @@ export function CashPlannerTab() {
 
           {/* ── Tab 5: Action Plan ───────────────────────────── */}
           <TabsContent value="actions">
-            {model.scheduledExpenses.length > 0 && (
-              <>
-                <SectionHeader sub="Approve or defer each expense — only approved items flow into the cash simulation">EXPENSE FORECAST</SectionHeader>
-                <Card><CardContent className="pt-4 pb-2 overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="border-b border-border">
-                        <th className="text-left py-1.5 px-2 font-bold text-muted-foreground">Date</th>
-                        <th className="text-left py-1.5 px-2 font-bold text-muted-foreground">Description</th>
-                        <th className="text-left py-1.5 px-2 font-bold text-muted-foreground">Category</th>
-                        <th className="text-right py-1.5 px-2 font-bold text-muted-foreground">Amount</th>
-                        <th className="text-center py-1.5 px-2 font-bold text-muted-foreground">Approved</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {model.scheduledExpenses.sort((a, b) => a.weekIndex - b.weekIndex).map((exp) => {
-                        const style = CATEGORY_STYLE[exp.category] || CATEGORY_STYLE.tubes;
-                        const Icon = style.icon;
-                        return (
-                          <tr key={exp.id} className={`border-b border-border/50 ${!exp.approved ? "opacity-50" : ""}`}>
-                            <td className="py-2 px-2 font-semibold text-foreground">{exp.dateLabel}</td>
-                            <td className="py-2 px-2 text-foreground">{exp.description}</td>
-                            <td className="py-2 px-2">
-                              <div className="flex items-center gap-1">
-                                <Icon className={`h-3 w-3 ${style.color}`} />
-                                <span className="capitalize text-muted-foreground">{exp.category}</span>
-                              </div>
-                            </td>
-                            <td className="py-2 px-2 text-right font-mono font-semibold text-destructive">{fmt(exp.amount)}</td>
-                            <td className="py-2 px-2 text-center">
-                              <Switch
-                                checked={exp.approved}
-                                onCheckedChange={() => toggleApproval(exp.id)}
-                                className="scale-75"
-                              />
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                    <tfoot>
-                      <tr className="border-t-2 border-border">
-                        <td colSpan={3} className="py-2 px-2 font-bold text-foreground">Total Approved</td>
-                        <td className="py-2 px-2 text-right font-mono font-bold text-destructive">
-                          {fmt(model.scheduledExpenses.filter(e => e.approved).reduce((s, e) => s + e.amount, 0))}
+            <SectionHeader sub="Approve or defer each expense — only approved items flow into the cash simulation. Add your own line items.">EXPENSE FORECAST</SectionHeader>
+            <Card><CardContent className="pt-4 pb-2 overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left py-1.5 px-2 font-bold text-muted-foreground">Date</th>
+                    <th className="text-left py-1.5 px-2 font-bold text-muted-foreground">Description</th>
+                    <th className="text-left py-1.5 px-2 font-bold text-muted-foreground">Category</th>
+                    <th className="text-right py-1.5 px-2 font-bold text-muted-foreground">Amount</th>
+                    <th className="text-center py-1.5 px-2 font-bold text-muted-foreground">Approved</th>
+                    <th className="w-8"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {model.scheduledExpenses.sort((a, b) => a.weekIndex - b.weekIndex).map((exp) => {
+                    const style = CATEGORY_STYLE[exp.category] || CATEGORY_STYLE.tubes;
+                    const Icon = style.icon;
+                    const isManual = exp.id.startsWith("manual-");
+                    const manualId = isManual ? exp.id.replace("manual-", "") : "";
+                    const manualData = isManual ? manualExpenses.find(me => me.id === manualId) : null;
+                    return (
+                      <tr key={exp.id} className={`border-b border-border/50 ${!exp.approved ? "opacity-50" : ""}`}>
+                        <td className="py-2 px-2 font-semibold text-foreground">
+                          {isManual && manualData ? (
+                            <Input type="date" value={manualData.date}
+                              onChange={(e) => updateManualExpense(manualId, "date", e.target.value)}
+                              className="h-6 text-xs px-1 w-28" />
+                          ) : exp.dateLabel}
                         </td>
-                        <td className="py-2 px-2 text-center text-[10px] text-muted-foreground">
-                          {model.scheduledExpenses.filter(e => e.approved).length}/{model.scheduledExpenses.length}
+                        <td className="py-2 px-2 text-foreground">
+                          {isManual && manualData ? (
+                            <Input value={manualData.description}
+                              onChange={(e) => updateManualExpense(manualId, "description", e.target.value)}
+                              className="h-6 text-xs px-1" placeholder="Description" />
+                          ) : exp.description}
+                        </td>
+                        <td className="py-2 px-2">
+                          {isManual && manualData ? (
+                            <Select value={manualData.category} onValueChange={(v) => updateManualExpense(manualId, "category", v)}>
+                              <SelectTrigger className="h-6 text-xs px-1 w-24"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                {Object.keys(CATEGORY_STYLE).map(cat => (
+                                  <SelectItem key={cat} value={cat} className="text-xs capitalize">{cat}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <Icon className={`h-3 w-3 ${style.color}`} />
+                              <span className="capitalize text-muted-foreground">{exp.category}</span>
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-2 px-2 text-right font-mono font-semibold text-destructive">
+                          {isManual && manualData ? (
+                            <Input type="number" value={manualData.amount || ""}
+                              onChange={(e) => updateManualExpense(manualId, "amount", Number(e.target.value))}
+                              className="h-6 text-xs px-1 w-20 text-right font-mono" placeholder="$0" />
+                          ) : fmt(exp.amount)}
+                        </td>
+                        <td className="py-2 px-2 text-center">
+                          <Switch
+                            checked={exp.approved}
+                            onCheckedChange={() => toggleApproval(exp.id)}
+                            className="scale-75"
+                          />
+                        </td>
+                        <td className="py-1 px-1">
+                          <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                            onClick={() => deleteExpense(exp.id)}>
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
                         </td>
                       </tr>
-                    </tfoot>
-                  </table>
-                </CardContent></Card>
-              </>
-            )}
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-border">
+                    <td colSpan={3} className="py-2 px-2 font-bold text-foreground">Total Approved</td>
+                    <td className="py-2 px-2 text-right font-mono font-bold text-destructive">
+                      {fmt(model.scheduledExpenses.filter(e => e.approved).reduce((s, e) => s + e.amount, 0))}
+                    </td>
+                    <td className="py-2 px-2 text-center text-[10px] text-muted-foreground">
+                      {model.scheduledExpenses.filter(e => e.approved).length}/{model.scheduledExpenses.length}
+                    </td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+              <Button variant="outline" size="sm" className="mt-3 gap-1 text-xs" onClick={addManualExpense}>
+                <Plus className="h-3 w-3" /> Add Expense
+              </Button>
+            </CardContent></Card>
 
             {model.cascadeActions.length > 0 && (
               <>
