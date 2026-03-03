@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { AlertTriangle, TrendingUp, Package, DollarSign, ShieldCheck, Save, RotateCcw, ChevronLeft, ChevronRight, CalendarDays, Clock, Truck, Factory, FlaskConical, Plus, Trash2, ChevronDown } from "lucide-react";
+import { AlertTriangle, TrendingUp, Package, DollarSign, ShieldCheck, Save, RotateCcw, ChevronLeft, ChevronRight, CalendarDays, Clock, Truck, Factory, FlaskConical, Plus, Trash2, ChevronDown, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import { addWeeks, addDays, format, differenceInWeeks, startOfMonth, getDaysInMonth, getDay } from "date-fns";
@@ -140,6 +140,7 @@ interface ProductionHistoryEntry {
 const PROD_ORDERS_STORAGE_KEY = "lisolina-prod-orders";
 const PROD_HISTORY_STORAGE_KEY = "lisolina-prod-history";
 const MANUAL_EXPENSES_STORAGE_KEY = "lisolina-manual-expenses";
+const EXPENSE_OVERRIDES_STORAGE_KEY = "lisolina-expense-overrides";
 
 interface ManualExpense {
   id: string;
@@ -155,6 +156,16 @@ function loadSavedManualExpenses(): ManualExpense[] {
     if (saved) return JSON.parse(saved);
   } catch {}
   return [];
+}
+
+type ExpenseOverride = Partial<Pick<ScheduledExpense, "dateLabel" | "description" | "amount" | "category">>;
+
+function loadSavedExpenseOverrides(): Record<string, ExpenseOverride> {
+  try {
+    const saved = localStorage.getItem(EXPENSE_OVERRIDES_STORAGE_KEY);
+    if (saved) return JSON.parse(saved);
+  } catch {}
+  return {};
 }
 
 const defaultProductionOrders: ProductionOrder[] = [
@@ -531,7 +542,7 @@ function ProductionRunArrows({ xAxisMap, yAxisMap, annotations }: { xAxisMap: an
 }
 
 // ── Core planner model (full-year simulation with sliding 16-week view) ──
-function useModel(inputs: Inputs, startWeekOffset: number, todayWeekOffset: number, approvals: Record<string, boolean>, scEvents: SupplyChainEvent[], manualExpenses: ManualExpense[]) {
+function useModel(inputs: Inputs, startWeekOffset: number, todayWeekOffset: number, approvals: Record<string, boolean>, scEvents: SupplyChainEvent[], manualExpenses: ManualExpense[], expenseOverrides: Record<string, ExpenseOverride>) {
   return useMemo(() => {
     const yearEndAbsWeek = differenceInWeeks(new Date(2026, 11, 31), EPOCH);
     const totalSimWeeks = Math.max(16, yearEndAbsWeek - todayWeekOffset + 1);
@@ -948,7 +959,22 @@ function useModel(inputs: Inputs, startWeekOffset: number, todayWeekOffset: numb
     scheduledExpenses.length = 0;
     scheduledExpenses.push(...deduped);
 
-    inventory = inventoryOnHand;
+    // ── Apply expense overrides (user edits to auto-generated rows) ──
+    for (const exp of scheduledExpenses) {
+      const ov = expenseOverrides[exp.id];
+      if (ov) {
+        if (ov.amount !== undefined) exp.amount = ov.amount;
+        if (ov.description !== undefined) exp.description = ov.description;
+        if (ov.category !== undefined) exp.category = ov.category as any;
+        if (ov.dateLabel !== undefined) exp.dateLabel = ov.dateLabel;
+      }
+    }
+    // Also update deferred payments to use overridden amounts
+    for (const dp of deferredPayments) {
+      const ov = expenseOverrides[dp.expenseId];
+      if (ov?.amount !== undefined) dp.amount = ov.amount;
+    }
+
     tubes = tubesOnHand;
     cashBalance = cashOnHand;
     const arrivals2: typeof productionScheduled = [];
@@ -1115,7 +1141,7 @@ function useModel(inputs: Inputs, startWeekOffset: number, todayWeekOffset: numb
       tubeBufferHitAbsWeek: tubeBufferHitWeek >= 0 ? todayWeekOffset + tubeBufferHitWeek : -1,
       productionAnnotations: visibleAnnotations,
     };
-  }, [inputs, startWeekOffset, todayWeekOffset, approvals, scEvents, manualExpenses]);
+  }, [inputs, startWeekOffset, todayWeekOffset, approvals, scEvents, manualExpenses, expenseOverrides]);
 }
 
 // ── Custom tooltip for cash forecast ────────────────────────────────
@@ -1171,6 +1197,7 @@ export function CashPlannerTab() {
   const [productionOrders, setProductionOrders] = useState<ProductionOrder[]>(loadSavedProductionOrders);
   const [productionHistory, setProductionHistory] = useState<ProductionHistoryEntry[]>(loadSavedProductionHistory);
   const [manualExpenses, setManualExpenses] = useState<ManualExpense[]>(loadSavedManualExpenses);
+  const [expenseOverrides, setExpenseOverrides] = useState<Record<string, ExpenseOverride>>(loadSavedExpenseOverrides);
   const [ordersOpen, setOrdersOpen] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(false);
   const set = useCallback((key: keyof Inputs) => (val: number) => setInputs((p) => ({ ...p, [key]: val })), []);
@@ -1190,7 +1217,7 @@ export function CashPlannerTab() {
     lastProductionRunDate: latestHistoryDate,
   }), [inputs, latestHistoryDate]);
 
-  const model = useModel(effectiveInputs, startWeekOffset, todayWeek, approvals, scEvents, manualExpenses);
+  const model = useModel(effectiveInputs, startWeekOffset, todayWeek, approvals, scEvents, manualExpenses, expenseOverrides);
 
   const goBack = () => setStartWeekOffset((o) => Math.max(todayWeek, o - 4));
   const goForward = () => setStartWeekOffset((o) => Math.min(yearEndAbsWeek - 15, o + 4));
@@ -1202,8 +1229,9 @@ export function CashPlannerTab() {
     localStorage.setItem(PROD_ORDERS_STORAGE_KEY, JSON.stringify(productionOrders));
     localStorage.setItem(PROD_HISTORY_STORAGE_KEY, JSON.stringify(productionHistory));
     localStorage.setItem(MANUAL_EXPENSES_STORAGE_KEY, JSON.stringify(manualExpenses));
+    localStorage.setItem(EXPENSE_OVERRIDES_STORAGE_KEY, JSON.stringify(expenseOverrides));
     toast({ title: "Inputs saved", description: "Model inputs, approvals, and expenses saved." });
-  }, [inputs, approvals, productionOrders, productionHistory, manualExpenses]);
+  }, [inputs, approvals, productionOrders, productionHistory, manualExpenses, expenseOverrides]);
 
   const handleReset = useCallback(() => {
     setInputs(loadSavedInputs());
@@ -1211,6 +1239,7 @@ export function CashPlannerTab() {
     setProductionOrders(loadSavedProductionOrders());
     setProductionHistory(loadSavedProductionHistory());
     setManualExpenses(loadSavedManualExpenses());
+    setExpenseOverrides(loadSavedExpenseOverrides());
     toast({ title: "Inputs refreshed", description: "Restored from last save." });
   }, []);
 
@@ -1248,7 +1277,22 @@ export function CashPlannerTab() {
     }
   }, []);
 
-  // Production order CRUD
+  const updateExpenseOverride = useCallback((id: string, field: keyof ExpenseOverride, value: any) => {
+    setExpenseOverrides(prev => ({
+      ...prev,
+      [id]: { ...(prev[id] || {}), [field]: value },
+    }));
+  }, []);
+
+  const resetExpenseOverride = useCallback((id: string) => {
+    setExpenseOverrides(prev => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }, []);
+
+
   const addProductionOrder = useCallback(() => {
     setProductionOrders(prev => [...prev, {
       id: `po-${Date.now()}`,
@@ -1645,14 +1689,13 @@ export function CashPlannerTab() {
                 <ComposedChart data={model.weeklyData} margin={{ top: 30, right: 20, left: 10, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
                   <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                  <YAxis yAxisId="left" tick={{ fontSize: 11 }} label={{ value: "Finished Units", angle: -90, position: "insideLeft", style: { fontSize: 10 } }} />
-                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} label={{ value: "Tubes", angle: 90, position: "insideRight", style: { fontSize: 10 } }} />
+                  <YAxis domain={[0, 50000]} tick={{ fontSize: 11 }} tickFormatter={(v: number) => `${v / 1000}k`} label={{ value: "Units", angle: -90, position: "insideLeft", style: { fontSize: 10 } }} />
                   <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-                  <ReferenceLine yAxisId="left" y={inputs.weeklyVelocity * inputs.minWeeksStock} stroke={C_ORANGE} strokeDasharray="4 4" label={{ value: `${inputs.minWeeksStock}wk buffer`, fill: C_ORANGE, fontSize: 10 }} />
-                  <ReferenceLine yAxisId="right" y={inputs.weeklyVelocity * inputs.tubeBufferWeeks} stroke={C_GOLD} strokeDasharray="4 4" label={{ value: `Tube ${inputs.tubeBufferWeeks}wk buffer`, fill: C_GOLD, fontSize: 10, position: "right" }} />
-                  <ReferenceLine yAxisId="left" y={0} stroke={C_RED} strokeWidth={2} />
-                  <Line yAxisId="left" dataKey="inventory" name="Finished Product" stroke={C_NAVY} strokeWidth={2.5} dot={{ r: 3 }} />
-                  <Line yAxisId="right" dataKey="tubes" name="Tubes at AES" stroke={C_GOLD} strokeWidth={2} dot={{ r: 2 }} strokeDasharray="5 3" />
+                  <ReferenceLine y={inputs.weeklyVelocity * inputs.minWeeksStock} stroke={C_ORANGE} strokeDasharray="4 4" label={{ value: `${inputs.minWeeksStock}wk buffer`, fill: C_ORANGE, fontSize: 10 }} />
+                  <ReferenceLine y={inputs.weeklyVelocity * inputs.tubeBufferWeeks} stroke={C_GOLD} strokeDasharray="4 4" label={{ value: `Tube ${inputs.tubeBufferWeeks}wk buffer`, fill: C_GOLD, fontSize: 10, position: "right" }} />
+                  <ReferenceLine y={0} stroke={C_RED} strokeWidth={2} />
+                  <Line dataKey="inventory" name="Finished Product" stroke={C_NAVY} strokeWidth={2.5} dot={{ r: 3 }} />
+                  <Line dataKey="tubes" name="Tubes at AES" stroke={C_GOLD} strokeWidth={2} dot={{ r: 2 }} strokeDasharray="5 3" />
                   <Customized component={(props: any) => (
                     <ProductionRunArrows
                       xAxisMap={props.xAxisMap}
@@ -1830,11 +1873,21 @@ export function CashPlannerTab() {
                 </thead>
                 <tbody>
                   {model.scheduledExpenses.sort((a, b) => a.weekIndex - b.weekIndex).map((exp) => {
-                    const style = CATEGORY_STYLE[exp.category] || CATEGORY_STYLE.tubes;
-                    const Icon = style.icon;
+                    const override = expenseOverrides[exp.id];
                     const isManual = exp.id.startsWith("manual-");
                     const manualId = isManual ? exp.id.replace("manual-", "") : "";
                     const manualData = isManual ? manualExpenses.find(me => me.id === manualId) : null;
+                    const hasOverride = !isManual && override && Object.keys(override).length > 0;
+
+                    // Effective values (override > original)
+                    const effDescription = isManual ? (manualData?.description ?? "") : (override?.description ?? exp.description);
+                    const effAmount = isManual ? (manualData?.amount ?? 0) : (override?.amount ?? exp.amount);
+                    const effCategory = isManual ? (manualData?.category ?? exp.category) : (override?.category ?? exp.category);
+                    const effDateLabel = isManual ? (manualData?.date ?? exp.dateLabel) : (override?.dateLabel ?? exp.dateLabel);
+
+                    const style = CATEGORY_STYLE[effCategory] || CATEGORY_STYLE.tubes;
+                    const Icon = style.icon;
+
                     return (
                       <tr key={exp.id} className={`border-b border-border/50 ${!exp.approved ? "opacity-50" : ""}`}>
                         <td className="py-2 px-2 font-semibold text-foreground">
@@ -1842,38 +1895,43 @@ export function CashPlannerTab() {
                             <Input type="date" value={manualData.date}
                               onChange={(e) => updateManualExpense(manualId, "date", e.target.value)}
                               className="h-6 text-xs px-1 w-28" />
-                          ) : exp.dateLabel}
+                          ) : (
+                            <Input type="text" value={effDateLabel}
+                              onChange={(e) => updateExpenseOverride(exp.id, "dateLabel", e.target.value)}
+                              className="h-6 text-xs px-1 w-24" />
+                          )}
                         </td>
                         <td className="py-2 px-2 text-foreground">
                           {isManual && manualData ? (
                             <Input value={manualData.description}
                               onChange={(e) => updateManualExpense(manualId, "description", e.target.value)}
                               className="h-6 text-xs px-1" placeholder="Description" />
-                          ) : exp.description}
+                          ) : (
+                            <Input value={effDescription}
+                              onChange={(e) => updateExpenseOverride(exp.id, "description", e.target.value)}
+                              className="h-6 text-xs px-1" />
+                          )}
                         </td>
                         <td className="py-2 px-2">
-                          {isManual && manualData ? (
-                            <Select value={manualData.category} onValueChange={(v) => updateManualExpense(manualId, "category", v)}>
-                              <SelectTrigger className="h-6 text-xs px-1 w-24"><SelectValue /></SelectTrigger>
-                              <SelectContent>
-                                {Object.keys(CATEGORY_STYLE).map(cat => (
-                                  <SelectItem key={cat} value={cat} className="text-xs capitalize">{cat}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          ) : (
-                            <div className="flex items-center gap-1">
-                              <Icon className={`h-3 w-3 ${style.color}`} />
-                              <span className="capitalize text-muted-foreground">{exp.category}</span>
-                            </div>
-                          )}
+                          <Select value={effCategory} onValueChange={(v) => isManual ? updateManualExpense(manualId, "category", v) : updateExpenseOverride(exp.id, "category", v)}>
+                            <SelectTrigger className="h-6 text-xs px-1 w-24"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {Object.keys(CATEGORY_STYLE).map(cat => (
+                                <SelectItem key={cat} value={cat} className="text-xs capitalize">{cat}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </td>
                         <td className="py-2 px-2 text-right font-mono font-semibold text-destructive">
                           {isManual && manualData ? (
                             <Input type="number" value={manualData.amount || ""}
                               onChange={(e) => updateManualExpense(manualId, "amount", Number(e.target.value))}
                               className="h-6 text-xs px-1 w-20 text-right font-mono" placeholder="$0" />
-                          ) : fmt(exp.amount)}
+                          ) : (
+                            <Input type="number" value={effAmount || ""}
+                              onChange={(e) => updateExpenseOverride(exp.id, "amount", Number(e.target.value))}
+                              className="h-6 text-xs px-1 w-20 text-right font-mono" />
+                          )}
                         </td>
                         <td className="py-2 px-2 text-center">
                           <Switch
@@ -1882,7 +1940,13 @@ export function CashPlannerTab() {
                             className="scale-75"
                           />
                         </td>
-                        <td className="py-1 px-1">
+                        <td className="py-1 px-1 flex items-center gap-0.5">
+                          {hasOverride && (
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground hover:text-accent"
+                              onClick={() => resetExpenseOverride(exp.id)} title="Reset to original">
+                              <Undo2 className="h-3 w-3" />
+                            </Button>
+                          )}
                           <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
                             onClick={() => deleteExpense(exp.id)}>
                             <Trash2 className="h-3 w-3" />
