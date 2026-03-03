@@ -9,7 +9,7 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { messages } = await req.json();
+    const { messages, stream: streamRequested = true } = await req.json();
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
@@ -30,7 +30,7 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         messages: finalMessages,
-        stream: true,
+        stream: streamRequested,
       }),
     });
 
@@ -51,6 +51,13 @@ serve(async (req) => {
       console.error("AI gateway error:", response.status, t);
       return new Response(JSON.stringify({ error: "AI gateway error" }), {
         status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (!streamRequested) {
+      const json = await response.json();
+      return new Response(JSON.stringify(json), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
