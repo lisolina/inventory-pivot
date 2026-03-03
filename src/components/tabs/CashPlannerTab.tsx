@@ -550,30 +550,35 @@ function useModel(inputs: Inputs, startWeekOffset: number, todayWeekOffset: numb
       // Auto-trigger fallback: only for weeks beyond the last scheduled event
       const useAutoTrigger = !hasScheduledEvents || w > lastScheduledRelWeek;
 
+      // Check if user has scheduled tube events — if so, skip tube auto-trigger entirely
+      const hasScheduledTubeEvents = hasScheduledEvents && scEvents.some(e => e.type === "tube_order" || e.type === "tube_arrival");
+
       if (useAutoTrigger) {
-        // Tube ordering: use manual date if set, otherwise auto-trigger based on tube buffer
-        if (tubeOrderRelWeek >= 0) {
-          if (w === tubeOrderRelWeek && !tubeOrderPlaced) {
-            simCycle++;
-            triggers.push({ week: w, type: "tube_order", cycleId: simCycle });
-            simNextTube = w + tubeLeadWeeks + 2;
-            productionScheduled.push({ arriveWeek: w + tubeLeadWeeks, type: "tubes", qty: tubeOrderSize });
-            tubeOrderPlaced = true;
-            productionAnnotations.push({
-              relWeek: w, absWeek: todayWeekOffset + w,
-              label: weekLabel(todayWeekOffset + w), runSize: tubeOrderSize, poType: "tube_order",
-            });
-          }
-        } else {
-          if (w >= simNextTube && simTubes < tubeBufferThreshold) {
-            simCycle++;
-            triggers.push({ week: w, type: "tube_order", cycleId: simCycle });
-            simNextTube = w + tubeLeadWeeks + 2;
-            productionScheduled.push({ arriveWeek: w + tubeLeadWeeks, type: "tubes", qty: tubeOrderSize });
-            productionAnnotations.push({
-              relWeek: w, absWeek: todayWeekOffset + w,
-              label: weekLabel(todayWeekOffset + w), runSize: tubeOrderSize, poType: "tube_order",
-            });
+        // Tube ordering: only auto-trigger if user hasn't scheduled tube events
+        if (!hasScheduledTubeEvents) {
+          if (tubeOrderRelWeek >= 0) {
+            if (w === tubeOrderRelWeek && !tubeOrderPlaced) {
+              simCycle++;
+              triggers.push({ week: w, type: "tube_order", cycleId: simCycle });
+              simNextTube = w + tubeLeadWeeks + 2;
+              productionScheduled.push({ arriveWeek: w + tubeLeadWeeks, type: "tubes", qty: tubeOrderSize });
+              tubeOrderPlaced = true;
+              productionAnnotations.push({
+                relWeek: w, absWeek: todayWeekOffset + w,
+                label: weekLabel(todayWeekOffset + w), runSize: tubeOrderSize, poType: "tube_order",
+              });
+            }
+          } else {
+            if (w >= simNextTube && simTubes < tubeBufferThreshold) {
+              simCycle++;
+              triggers.push({ week: w, type: "tube_order", cycleId: simCycle });
+              simNextTube = w + tubeLeadWeeks + 2;
+              productionScheduled.push({ arriveWeek: w + tubeLeadWeeks, type: "tubes", qty: tubeOrderSize });
+              productionAnnotations.push({
+                relWeek: w, absWeek: todayWeekOffset + w,
+                label: weekLabel(todayWeekOffset + w), runSize: tubeOrderSize, poType: "tube_order",
+              });
+            }
           }
         }
 
