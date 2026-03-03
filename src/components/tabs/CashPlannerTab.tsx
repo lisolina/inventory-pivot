@@ -4,6 +4,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine, Customized,
 } from "recharts";
 import { Card, CardContent } from "@/components/ui/card";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -1223,9 +1224,11 @@ export function CashPlannerTab() {
     setProductionHistory(prev => prev.filter(e => e.id !== id));
   }, []);
   return (
-    <div className="flex gap-0 -mx-6 -mt-2">
+    <div className="-mx-6 -mt-2" style={{ height: "calc(100vh - 140px)" }}>
+      <ResizablePanelGroup direction="horizontal">
       {/* ── LEFT SIDEBAR ──────────────────────────────────────── */}
-      <ScrollArea className="w-[270px] min-w-[270px] border-r border-border bg-card px-3.5 py-4" style={{ height: "calc(100vh - 140px)" }}>
+      <ResizablePanel defaultSize={20} minSize={15} maxSize={45}>
+      <ScrollArea className="h-full border-r border-border bg-card px-3.5 py-4">
         <div className="flex items-center justify-between mb-3">
           <span className="text-[11px] font-bold tracking-widest text-accent">MODEL INPUTS</span>
         </div>
@@ -1350,9 +1353,13 @@ export function CashPlannerTab() {
           </CollapsibleContent>
         </Collapsible>
       </ScrollArea>
+      </ResizablePanel>
+
+      <ResizableHandle withHandle />
 
       {/* ── MAIN CONTENT ──────────────────────────────────────── */}
-      <div className="flex-1 px-6 py-4 overflow-y-auto" style={{ height: "calc(100vh - 140px)" }}>
+      <ResizablePanel defaultSize={80}>
+      <div className="h-full px-6 py-4 overflow-y-auto">
         {/* Week navigation */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
@@ -1840,6 +1847,8 @@ export function CashPlannerTab() {
           </TabsContent>
         </Tabs>
       </div>
+      </ResizablePanel>
+      </ResizablePanelGroup>
     </div>
   );
 }
