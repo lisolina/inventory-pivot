@@ -1,34 +1,26 @@
 
 
-## Plan: Editable Expense Forecast + Single Y-Axis Inventory Chart
+## Plan: Fix World Building Task Parsing
 
-### Two changes
+### Root Cause
 
-**1. Make all expense forecast rows editable (not just manual ones)**
+`supabase.functions.invoke("chat", ...)` doesn't reliably expose the SSE stream as a `ReadableStream`. The `res.data instanceof ReadableStream` check fails, so `fullText` stays empty, and parsing fails every time.
 
-Currently only rows with `manual-` prefix IDs show inline edit fields. Auto-generated expenses (from production orders, Wayflyer, OpEx, etc.) display read-only text. The fix:
-- Make all rows editable inline — date, description, category, and amount fields render as inputs for every row
-- When an auto-generated expense is edited, save the override to a `savedExpenseOverrides` map in localStorage keyed by expense ID
-- On render, merge overrides back onto the generated data so edits persist across refreshes
-- Add a small "reset" icon per row to revert an overridden auto-generated expense back to its computed value
+### Fix
 
-**2. Single Y-axis on Inventory chart capped at 50k**
+**1. Edge function (`supabase/functions/chat/index.ts`)**: Accept an optional `stream` boolean in the request body (default `true`). When `stream: false`, return a plain JSON response instead of SSE.
 
-Currently the chart has dual Y-axes: `yAxisId="left"` for Finished Units and `yAxisId="right"` for Tubes. This is confusing because the two scales diverge.
+**2. World Building tab (`WorldBuildingTab.tsx`)**: Call with `stream: false` so `supabase.functions.invoke` returns parsed JSON directly. Extract the content from `res.data.choices[0].message.content` — no SSE parsing needed.
 
-Fix:
-- Remove the right Y-axis entirely
-- Put both `inventory` (Finished Product) and `tubes` (Tubes at AES) lines on a single Y-axis with `domain={[0, 50000]}`
-- Both lines share the same scale so their heights are directly comparable
-- Update reference lines to use the single axis
-- Update tick formatter to show `0`, `10k`, `20k`, `30k`, `40k`, `50k`
+### Changes
 
-### Files to edit
+**`supabase/functions/chat/index.ts`**:
+- Destructure `stream` from request body (default `true`)
+- Pass `stream` value to the AI gateway
+- If `!stream`, read the gateway response as JSON and return it as JSON (not SSE)
 
-**`src/components/tabs/CashPlannerTab.tsx`**:
-1. Add `expenseOverrides` state (localStorage-persisted `Record<string, Partial<ScheduledExpense>>`)
-2. In expense forecast table: render all rows with inline inputs (date, description, category dropdown, amount), not just manual ones
-3. On change for auto-generated rows, save delta to `expenseOverrides`; merge overrides in `useMemo` that produces final expense list
-4. Add per-row reset button for overridden auto-generated expenses
-5. In Inventory chart (lines ~1644-1664): remove `yAxisId="right"`, set single `<YAxis domain={[0, 50000]}` with label "Units", assign both Line components to the single axis, remove the right-side YAxis, update both ReferenceLine components to use the single axis
+**`src/components/tabs/WorldBuildingTab.tsx`**:
+- In `handleNlSubmit`, add `stream: false` to the request body
+- Replace the SSE reader logic with direct JSON access: `const fullText = res.data?.choices?.[0]?.message?.content || ""`
+- Keep the existing fence-stripping and array extraction logic
 
