@@ -11,7 +11,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { AlertTriangle, TrendingUp, Package, DollarSign, ShieldCheck, Save, RotateCcw, ChevronLeft, ChevronRight, CalendarDays, Clock, Truck, Factory, FlaskConical, Plus, Trash2 } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { AlertTriangle, TrendingUp, Package, DollarSign, ShieldCheck, Save, RotateCcw, ChevronLeft, ChevronRight, CalendarDays, Clock, Truck, Factory, FlaskConical, Plus, Trash2, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import { addWeeks, addDays, format, differenceInWeeks, startOfMonth, getDaysInMonth, getDay } from "date-fns";
@@ -108,35 +109,150 @@ const SC_EVENT_COLORS: Record<SCEventType, string> = {
   freight_arrival: "text-success",
 };
 
-const defaultScheduledEvents: SupplyChainEvent[] = [
-  { id: "sc-1", date: "2026-03-02", type: "tube_order", product: "tubes", description: "30k tubes ordered, deposit 25%", qty: 30000, cost: 2325 },
-  { id: "sc-2", date: "2026-03-16", type: "tube_payment", product: "tubes", description: "Printing complete, 25%", qty: 0, cost: 2325 },
-  { id: "sc-3", date: "2026-04-05", type: "tube_payment", product: "tubes", description: "Balance before ship, 50%", qty: 0, cost: 4650 },
-  { id: "sc-4", date: "2026-04-12", type: "tube_arrival", product: "tubes", description: "Air freight tranche — 15k tubes", qty: 15000, cost: 0 },
-  { id: "sc-5", date: "2026-05-03", type: "tube_arrival", product: "tubes", description: "Ocean freight tranche — 15k tubes", qty: 15000, cost: 0 },
-  { id: "sc-6", date: "2026-05-10", type: "production_start", product: "tubes", description: "Run 1 — 15k tubes consumed", qty: 15000, cost: 0 },
-  { id: "sc-7", date: "2026-05-17", type: "production_complete", product: "finished_product", description: "Run 1 done → freight ships", qty: 15000, cost: 0 },
-  { id: "sc-8", date: "2026-05-24", type: "freight_arrival", product: "finished_product", description: "Run 1 — 15k units arrive at Sabah", qty: 15000, cost: 0 },
-  { id: "sc-9", date: "2026-05-17", type: "production_start", product: "tubes", description: "Run 2 — 15k tubes consumed", qty: 15000, cost: 0 },
-  { id: "sc-10", date: "2026-05-24", type: "production_complete", product: "finished_product", description: "Run 2 done", qty: 15000, cost: 0 },
-  { id: "sc-11", date: "2026-05-31", type: "freight_arrival", product: "finished_product", description: "Run 2 — 15k units arrive at Sabah", qty: 15000, cost: 0 },
+// ── Production Order Types ──────────────────────────────────────────
+interface FundingTranche {
+  id: string;
+  pct: number;
+  date: string;
+}
+
+interface ProductionOrder {
+  id: string;
+  tubesQty: number;
+  tubeCostTotal: number;
+  fundingTranches: FundingTranche[];
+  shipDate: string;
+  shippingMethod: "air" | "ocean";
+  landedDateAES: string;
+  productionRunDate: string;
+  runSize: number;
+  freightToSabahDate: string;
+  arrivalDateSabah: string;
+}
+
+interface ProductionHistoryEntry {
+  id: string;
+  date: string;
+  qty: number;
+}
+
+const PROD_ORDERS_STORAGE_KEY = "lisolina-prod-orders";
+const PROD_HISTORY_STORAGE_KEY = "lisolina-prod-history";
+
+const defaultProductionOrders: ProductionOrder[] = [
+  {
+    id: "po-1",
+    tubesQty: 15000,
+    tubeCostTotal: 9300,
+    fundingTranches: [
+      { id: "t1", pct: 25, date: "2026-03-02" },
+      { id: "t2", pct: 25, date: "2026-03-16" },
+      { id: "t3", pct: 50, date: "2026-04-05" },
+    ],
+    shipDate: "2026-04-05",
+    shippingMethod: "air",
+    landedDateAES: "2026-04-12",
+    productionRunDate: "2026-05-10",
+    runSize: 15000,
+    freightToSabahDate: "2026-05-17",
+    arrivalDateSabah: "2026-05-24",
+  },
+  {
+    id: "po-2",
+    tubesQty: 15000,
+    tubeCostTotal: 0,
+    fundingTranches: [],
+    shipDate: "2026-04-20",
+    shippingMethod: "ocean",
+    landedDateAES: "2026-05-03",
+    productionRunDate: "2026-05-17",
+    runSize: 15000,
+    freightToSabahDate: "2026-05-24",
+    arrivalDateSabah: "2026-05-31",
+  },
 ];
 
-const SC_EVENTS_STORAGE_KEY = "lisolina-sc-events";
+const defaultProductionHistory: ProductionHistoryEntry[] = [
+  { id: "ph-1", date: "2026-02-16", qty: 10000 },
+];
 
-function loadSavedSCEvents(): SupplyChainEvent[] {
+function loadSavedProductionOrders(): ProductionOrder[] {
   try {
-    const saved = localStorage.getItem(SC_EVENTS_STORAGE_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved) as any[];
-      // Backfill product field for events saved before this feature
-      return parsed.map(ev => ({
-        ...ev,
-        product: ev.product || defaultProductForType(ev.type),
-      }));
-    }
+    const saved = localStorage.getItem(PROD_ORDERS_STORAGE_KEY);
+    if (saved) return JSON.parse(saved);
   } catch {}
-  return defaultScheduledEvents;
+  return defaultProductionOrders;
+}
+
+function loadSavedProductionHistory(): ProductionHistoryEntry[] {
+  try {
+    const saved = localStorage.getItem(PROD_HISTORY_STORAGE_KEY);
+    if (saved) return JSON.parse(saved);
+  } catch {}
+  return defaultProductionHistory;
+}
+
+function productionOrdersToSCEvents(orders: ProductionOrder[]): SupplyChainEvent[] {
+  const events: SupplyChainEvent[] = [];
+  for (const order of orders) {
+    // Funding tranches → tube payments
+    order.fundingTranches.forEach((tranche, i) => {
+      const cost = Math.round(order.tubeCostTotal * tranche.pct / 100);
+      if (cost > 0 || (i === 0 && order.tubesQty > 0)) {
+        events.push({
+          id: `po-${order.id}-tr-${tranche.id}`,
+          date: tranche.date,
+          type: i === 0 ? "tube_order" : "tube_payment",
+          product: "tubes",
+          description: i === 0
+            ? `${order.tubesQty.toLocaleString()} tubes, ${tranche.pct}% deposit`
+            : `Tube payment ${tranche.pct}%`,
+          qty: i === 0 ? order.tubesQty : 0,
+          cost,
+        });
+      }
+    });
+
+    // Tube arrival at AES
+    if (order.landedDateAES && order.tubesQty > 0) {
+      events.push({
+        id: `po-${order.id}-land`,
+        date: order.landedDateAES,
+        type: "tube_arrival",
+        product: "tubes",
+        description: `${order.shippingMethod === "air" ? "Air" : "Ocean"} — ${order.tubesQty.toLocaleString()} tubes`,
+        qty: order.tubesQty,
+        cost: 0,
+      });
+    }
+
+    // Production start (consumes tubes)
+    if (order.productionRunDate && order.runSize > 0) {
+      events.push({
+        id: `po-${order.id}-prod`,
+        date: order.productionRunDate,
+        type: "production_start",
+        product: "tubes",
+        description: `Run — ${order.runSize.toLocaleString()} tubes consumed`,
+        qty: order.runSize,
+        cost: 0,
+      });
+    }
+
+    // Freight arrival at Sabah
+    if (order.arrivalDateSabah && order.runSize > 0) {
+      events.push({
+        id: `po-${order.id}-arr`,
+        date: order.arrivalDateSabah,
+        type: "freight_arrival",
+        product: "finished_product",
+        description: `${order.runSize.toLocaleString()} units at Sabah`,
+        qty: order.runSize,
+        cost: 0,
+      });
+    }
+  }
+  return events.sort((a, b) => a.date.localeCompare(b.date));
 }
 
 // ── Default model inputs ────────────────────────────────────────────
@@ -1006,12 +1122,28 @@ export function CashPlannerTab() {
   const [inputs, setInputs] = useState<Inputs>(loadSavedInputs);
   const [startWeekOffset, setStartWeekOffset] = useState(() => currentWeekIndex());
   const [approvals, setApprovals] = useState<Record<string, boolean>>(loadSavedApprovals);
-  const [scEvents, setSCEvents] = useState<SupplyChainEvent[]>(loadSavedSCEvents);
+  const [productionOrders, setProductionOrders] = useState<ProductionOrder[]>(loadSavedProductionOrders);
+  const [productionHistory, setProductionHistory] = useState<ProductionHistoryEntry[]>(loadSavedProductionHistory);
+  const [ordersOpen, setOrdersOpen] = useState(true);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const set = useCallback((key: keyof Inputs) => (val: number) => setInputs((p) => ({ ...p, [key]: val })), []);
   const setStr = useCallback((key: keyof Inputs) => (val: string) => setInputs((p) => ({ ...p, [key]: val })), []);
   const todayWeek = useMemo(() => currentWeekIndex(), []);
   const yearEndAbsWeek = useMemo(() => differenceInWeeks(new Date(2026, 11, 31), EPOCH), []);
-  const model = useModel(inputs, startWeekOffset, todayWeek, approvals, scEvents);
+  const scEvents = useMemo(() => productionOrdersToSCEvents(productionOrders), [productionOrders]);
+
+  // Derive lastProductionRunDate from production history
+  const latestHistoryDate = useMemo(() => {
+    if (productionHistory.length === 0) return inputs.lastProductionRunDate;
+    return productionHistory.reduce((latest, e) => e.date > latest ? e.date : latest, "");
+  }, [productionHistory, inputs.lastProductionRunDate]);
+
+  const effectiveInputs = useMemo(() => ({
+    ...inputs,
+    lastProductionRunDate: latestHistoryDate,
+  }), [inputs, latestHistoryDate]);
+
+  const model = useModel(effectiveInputs, startWeekOffset, todayWeek, approvals, scEvents);
 
   const goBack = () => setStartWeekOffset((o) => Math.max(todayWeek, o - 4));
   const goForward = () => setStartWeekOffset((o) => Math.min(yearEndAbsWeek - 15, o + 4));
@@ -1020,15 +1152,16 @@ export function CashPlannerTab() {
   const handleSave = useCallback(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(inputs));
     localStorage.setItem(APPROVALS_KEY, JSON.stringify(approvals));
-    localStorage.setItem(SC_EVENTS_STORAGE_KEY, JSON.stringify(scEvents));
-    toast({ title: "Inputs saved", description: "Model inputs, approvals, and schedule saved." });
-  }, [inputs, approvals, scEvents]);
+    localStorage.setItem(PROD_ORDERS_STORAGE_KEY, JSON.stringify(productionOrders));
+    localStorage.setItem(PROD_HISTORY_STORAGE_KEY, JSON.stringify(productionHistory));
+    toast({ title: "Inputs saved", description: "Model inputs, approvals, and production orders saved." });
+  }, [inputs, approvals, productionOrders, productionHistory]);
 
   const handleReset = useCallback(() => {
-    const saved = loadSavedInputs();
-    setInputs(saved);
+    setInputs(loadSavedInputs());
     setApprovals(loadSavedApprovals());
-    setSCEvents(loadSavedSCEvents());
+    setProductionOrders(loadSavedProductionOrders());
+    setProductionHistory(loadSavedProductionHistory());
     toast({ title: "Inputs refreshed", description: "Restored from last save." });
   }, []);
 
@@ -1036,42 +1169,59 @@ export function CashPlannerTab() {
     setApprovals(prev => ({ ...prev, [id]: prev[id] === false ? true : false }));
   }, []);
 
-  // SC event CRUD
-  const addSCEvent = useCallback(() => {
-    const newId = `sc-${Date.now()}`;
-    const defaultType: SCEventType = "tube_arrival";
-    setSCEvents(prev => [...prev, {
-      id: newId,
-      date: format(new Date(), "yyyy-MM-dd"),
-      type: defaultType,
-      product: defaultProductForType(defaultType),
-      description: "",
-      qty: 0,
-      cost: 0,
+  // Production order CRUD
+  const addProductionOrder = useCallback(() => {
+    setProductionOrders(prev => [...prev, {
+      id: `po-${Date.now()}`,
+      tubesQty: 0, tubeCostTotal: 0,
+      fundingTranches: [],
+      shipDate: "", shippingMethod: "ocean",
+      landedDateAES: "", productionRunDate: "",
+      runSize: 0, freightToSabahDate: "", arrivalDateSabah: "",
     }]);
   }, []);
 
-  const updateSCEvent = useCallback((id: string, field: keyof SupplyChainEvent, value: any) => {
-    setSCEvents(prev => prev.map(ev => {
-      if (ev.id !== id) return ev;
-      const updated = { ...ev, [field]: value };
-      // Auto-set product when type changes
-      if (field === "type") {
-        updated.product = defaultProductForType(value as SCEventType);
-      }
-      return updated;
+  const updateOrder = useCallback((id: string, field: keyof ProductionOrder, value: any) => {
+    setProductionOrders(prev => prev.map(o => o.id === id ? { ...o, [field]: value } : o));
+  }, []);
+
+  const removeOrder = useCallback((id: string) => {
+    setProductionOrders(prev => prev.filter(o => o.id !== id));
+  }, []);
+
+  const addTranche = useCallback((orderId: string) => {
+    setProductionOrders(prev => prev.map(o => {
+      if (o.id !== orderId) return o;
+      return { ...o, fundingTranches: [...o.fundingTranches, { id: `tr-${Date.now()}`, pct: 0, date: format(new Date(), "yyyy-MM-dd") }] };
     }));
   }, []);
 
-  const removeSCEvent = useCallback((id: string) => {
-    setSCEvents(prev => prev.filter(ev => ev.id !== id));
+  const updateTranche = useCallback((orderId: string, trancheId: string, field: keyof FundingTranche, value: any) => {
+    setProductionOrders(prev => prev.map(o => {
+      if (o.id !== orderId) return o;
+      return { ...o, fundingTranches: o.fundingTranches.map(t => t.id === trancheId ? { ...t, [field]: value } : t) };
+    }));
   }, []);
 
-  const resetSCEvents = useCallback(() => {
-    setSCEvents(defaultScheduledEvents);
-    toast({ title: "Schedule reset", description: "Restored to default scenario." });
+  const removeTranche = useCallback((orderId: string, trancheId: string) => {
+    setProductionOrders(prev => prev.map(o => {
+      if (o.id !== orderId) return o;
+      return { ...o, fundingTranches: o.fundingTranches.filter(t => t.id !== trancheId) };
+    }));
   }, []);
 
+  // Production history CRUD
+  const addHistoryEntry = useCallback(() => {
+    setProductionHistory(prev => [...prev, { id: `ph-${Date.now()}`, date: format(new Date(), "yyyy-MM-dd"), qty: 0 }]);
+  }, []);
+
+  const updateHistoryEntry = useCallback((id: string, field: keyof ProductionHistoryEntry, value: any) => {
+    setProductionHistory(prev => prev.map(e => e.id === id ? { ...e, [field]: value } : e));
+  }, []);
+
+  const removeHistoryEntry = useCallback((id: string) => {
+    setProductionHistory(prev => prev.filter(e => e.id !== id));
+  }, []);
   return (
     <div className="flex gap-0 -mx-6 -mt-2">
       {/* ── LEFT SIDEBAR ──────────────────────────────────────── */}
@@ -1111,44 +1261,94 @@ export function CashPlannerTab() {
         <InputField label="Monthly Salary" value={inputs.monthlySalary} onChange={set("monthlySalary")} prefix="$" step={100} />
         <InputField label="Wayflyer Draw (every 2wk)" value={inputs.wayflierBiweekly} onChange={set("wayflierBiweekly")} prefix="$" step={50} />
 
-        <SidebarSection>Lead Times</SidebarSection>
-        <InputField label="Tube Order to AES" value={inputs.tubeLeadWeeks} onChange={set("tubeLeadWeeks")} suffix="weeks" />
-        <InputField label="AES Production" value={inputs.productionLeadWeeks} onChange={set("productionLeadWeeks")} suffix="weeks" />
-        <InputField label="AES → Sabah Freight" value={inputs.freightToSabahWeeks} onChange={set("freightToSabahWeeks")} suffix="weeks" />
-        <InputField label="Ingredient Lead Time" value={inputs.ingredientLeadWeeks} onChange={set("ingredientLeadWeeks")} suffix="weeks" />
-        <InputField label="Min Stock Buffer" value={inputs.minWeeksStock} onChange={set("minWeeksStock")} suffix="weeks" />
-        <InputField label="Tube Buffer" value={inputs.tubeBufferWeeks} onChange={set("tubeBufferWeeks")} suffix="weeks" />
-        <InputField label="PO → Production Delay" value={inputs.poToProductionWeeks} onChange={set("poToProductionWeeks")} suffix="weeks" />
+        {/* ── Production & Packaging Orders ──────────────── */}
+        <Collapsible open={ordersOpen} onOpenChange={setOrdersOpen}>
+          <CollapsibleTrigger asChild>
+            <div className="text-[10px] font-bold tracking-widest text-accent uppercase border-b border-accent/30 pb-1 mb-2 mt-4 flex items-center justify-between cursor-pointer hover:text-accent/80">
+              Production Orders
+              <ChevronDown className={`h-3 w-3 transition-transform ${ordersOpen ? "rotate-180" : ""}`} />
+            </div>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="space-y-3">
+            {productionOrders.map((order, idx) => (
+              <Card key={order.id} className="p-2.5 border-accent/20">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[11px] font-bold text-accent">Order {idx + 1}</span>
+                  <Button size="sm" variant="ghost" className="h-5 w-5 p-0" onClick={() => removeOrder(order.id)}>
+                    <Trash2 className="h-3 w-3 text-destructive" />
+                  </Button>
+                </div>
+                <InputField label="Tubes Ordered" value={order.tubesQty} onChange={v => updateOrder(order.id, "tubesQty", v)} suffix="tubes" step={1000} />
+                <InputField label="Tube Cost (Total)" value={order.tubeCostTotal} onChange={v => updateOrder(order.id, "tubeCostTotal", v)} prefix="$" step={100} />
 
-        <SidebarSection>Payment Terms</SidebarSection>
-        <InputField label="Tube Deposit %" value={inputs.tubePaymentPct1} onChange={set("tubePaymentPct1")} suffix="%" step={5} />
-        <InputField label="Tube Printing %" value={inputs.tubePaymentPct2} onChange={set("tubePaymentPct2")} suffix="%" step={5} />
-        <InputField label="AES Net Terms" value={inputs.aesNetDays} onChange={set("aesNetDays")} suffix="days" step={15} />
+                {/* Funding Tranches */}
+                <div className="mb-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">Funding Tranches</Label>
+                    <Button size="sm" variant="ghost" className="h-5 px-1 text-[10px]" onClick={() => addTranche(order.id)}>
+                      <Plus className="h-2.5 w-2.5 mr-0.5" /> Add
+                    </Button>
+                  </div>
+                  {order.fundingTranches.map(tr => (
+                    <div key={tr.id} className="flex items-center gap-1 mb-1">
+                      <Input type="number" value={tr.pct} onChange={e => updateTranche(order.id, tr.id, "pct", parseFloat(e.target.value) || 0)} className="h-6 text-[10px] font-mono w-12" />
+                      <span className="text-[10px] text-muted-foreground">%</span>
+                      <Input type="date" value={tr.date} onChange={e => updateTranche(order.id, tr.id, "date", e.target.value)} className="h-6 text-[10px] font-mono flex-1" />
+                      <Button size="sm" variant="ghost" className="h-5 w-5 p-0" onClick={() => removeTranche(order.id, tr.id)}>
+                        <Trash2 className="h-2.5 w-2.5 text-destructive" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
 
-        <SidebarSection>Production (Auto-trigger fallback)</SidebarSection>
-        <InputField label="Run Size" value={inputs.productionRunSize} onChange={set("productionRunSize")} suffix="units" step={500} />
+                <DateInputField label="Ship Date" value={order.shipDate} onChange={v => updateOrder(order.id, "shipDate", v)} />
+                <div className="mb-2.5">
+                  <Label className="text-[11px] font-semibold tracking-wide text-muted-foreground">Shipping Method</Label>
+                  <Select value={order.shippingMethod} onValueChange={v => updateOrder(order.id, "shippingMethod", v)}>
+                    <SelectTrigger className="h-8 text-xs mt-1"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="air" className="text-xs">Air Freight</SelectItem>
+                      <SelectItem value="ocean" className="text-xs">Ocean</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <DateInputField label="Landed at AES" value={order.landedDateAES} onChange={v => updateOrder(order.id, "landedDateAES", v)} />
+                <DateInputField label="Production Run Date" value={order.productionRunDate} onChange={v => updateOrder(order.id, "productionRunDate", v)} />
+                <InputField label="Run Size" value={order.runSize} onChange={v => updateOrder(order.id, "runSize", v)} suffix="units" step={500} />
+                <DateInputField label="Freight Ships from AES" value={order.freightToSabahDate} onChange={v => updateOrder(order.id, "freightToSabahDate", v)} />
+                <DateInputField label="Arrives at Sabah" value={order.arrivalDateSabah} onChange={v => updateOrder(order.id, "arrivalDateSabah", v)} />
+              </Card>
+            ))}
+            <Button size="sm" variant="outline" className="w-full mt-1" onClick={addProductionOrder}>
+              <Plus className="h-3.5 w-3.5 mr-1" /> Add Order
+            </Button>
+          </CollapsibleContent>
+        </Collapsible>
 
-        <div className="grid grid-cols-2 gap-2">
-          <InputField label="Ingredient $/Unit" value={inputs.ingredientCostPerUnit} onChange={set("ingredientCostPerUnit")} prefix="$" step={0.05} />
-          <DateInputField label="Ingredient Funding Date" value={inputs.ingredientFundingDate} onChange={setStr("ingredientFundingDate")} />
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          <InputField label="Production $/Unit" value={inputs.productionCostPerUnit} onChange={set("productionCostPerUnit")} prefix="$" step={0.05} />
-          <DateInputField label="Production Funding Date" value={inputs.productionFundingDate} onChange={setStr("productionFundingDate")} />
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          <InputField label="Freight per Run" value={inputs.freightPerRun} onChange={set("freightPerRun")} prefix="$" step={50} />
-          <DateInputField label="Freight Funding Date" value={inputs.freightFundingDate} onChange={setStr("freightFundingDate")} />
-        </div>
-
-        <InputField label="Tube Order Size" value={inputs.tubeOrderSize} onChange={set("tubeOrderSize")} suffix="tubes" step={1000} />
-        <DateInputField label="Tube Order Date" value={inputs.tubeOrderDate} onChange={setStr("tubeOrderDate")} />
-        <InputField label="Tube Cost Each" value={inputs.tubeCostPer} onChange={set("tubeCostPer")} prefix="$" step={0.01} />
-
-        <SidebarSection>Production History</SidebarSection>
-        <DateInputField label="Last Production Run Date" value={inputs.lastProductionRunDate} onChange={setStr("lastProductionRunDate")} />
+        {/* ── Production History ──────────────────────────── */}
+        <Collapsible open={historyOpen} onOpenChange={setHistoryOpen}>
+          <CollapsibleTrigger asChild>
+            <div className="text-[10px] font-bold tracking-widest text-accent uppercase border-b border-accent/30 pb-1 mb-2 mt-4 flex items-center justify-between cursor-pointer hover:text-accent/80">
+              Production History
+              <ChevronDown className={`h-3 w-3 transition-transform ${historyOpen ? "rotate-180" : ""}`} />
+            </div>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="space-y-1.5">
+            {productionHistory.map(entry => (
+              <div key={entry.id} className="flex items-center gap-1">
+                <Input type="date" value={entry.date} onChange={e => updateHistoryEntry(entry.id, "date", e.target.value)} className="h-7 text-[10px] font-mono flex-1" />
+                <Input type="number" value={entry.qty} onChange={e => updateHistoryEntry(entry.id, "qty", parseInt(e.target.value) || 0)} className="h-7 text-[10px] font-mono w-16 text-right" />
+                <span className="text-[10px] text-muted-foreground">u</span>
+                <Button size="sm" variant="ghost" className="h-5 w-5 p-0" onClick={() => removeHistoryEntry(entry.id)}>
+                  <Trash2 className="h-2.5 w-2.5 text-destructive" />
+                </Button>
+              </div>
+            ))}
+            <Button size="sm" variant="outline" className="w-full mt-1" onClick={addHistoryEntry}>
+              <Plus className="h-3.5 w-3.5 mr-1" /> Add Entry
+            </Button>
+          </CollapsibleContent>
+        </Collapsible>
       </ScrollArea>
 
       {/* ── MAIN CONTENT ──────────────────────────────────────── */}
@@ -1210,7 +1410,6 @@ export function CashPlannerTab() {
             <TabsTrigger value="forecast">Cash Forecast</TabsTrigger>
             <TabsTrigger value="channels">Channel Mix</TabsTrigger>
             <TabsTrigger value="inventory">Inventory & Timing</TabsTrigger>
-            <TabsTrigger value="schedule">Schedule</TabsTrigger>
             <TabsTrigger value="actions">Action Plan</TabsTrigger>
           </TabsList>
 
@@ -1527,182 +1726,7 @@ export function CashPlannerTab() {
             </CardContent></Card>
           </TabsContent>
 
-          {/* ── Tab 4: Supply Chain Schedule ──────────────────── */}
-          <TabsContent value="schedule">
-            <SectionHeader sub="Define discrete supply chain events — tube orders, arrivals, production runs, freight. These override auto-trigger logic.">SUPPLY CHAIN SCHEDULE</SectionHeader>
-            
-            <div className="flex items-center gap-2 mb-4">
-              <Button size="sm" variant="default" onClick={addSCEvent}>
-                <Plus className="h-3.5 w-3.5 mr-1" /> Add Event
-              </Button>
-              <Button size="sm" variant="default" onClick={() => {
-                localStorage.setItem(SC_EVENTS_STORAGE_KEY, JSON.stringify(scEvents));
-                toast({ title: "Schedule saved", description: `${scEvents.length} events saved. Simulation updated.` });
-              }}>
-                <Save className="h-3.5 w-3.5 mr-1" /> Save Schedule
-              </Button>
-              <Button size="sm" variant="outline" onClick={resetSCEvents}>
-                <RotateCcw className="h-3.5 w-3.5 mr-1" /> Reset
-              </Button>
-              <span className="text-[11px] text-muted-foreground ml-2">
-                {scEvents.length} events • Auto-trigger kicks in after last scheduled event
-              </span>
-            </div>
 
-            <Card><CardContent className="pt-4 pb-2 overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="text-left py-1.5 px-2 font-bold text-muted-foreground w-[120px]">Date</th>
-                    <th className="text-left py-1.5 px-2 font-bold text-muted-foreground w-[150px]">Type</th>
-                    <th className="text-left py-1.5 px-2 font-bold text-muted-foreground w-[140px]">Product</th>
-                    <th className="text-left py-1.5 px-2 font-bold text-muted-foreground">Description</th>
-                    <th className="text-right py-1.5 px-2 font-bold text-muted-foreground w-[90px]">Qty</th>
-                    <th className="text-right py-1.5 px-2 font-bold text-muted-foreground w-[100px]">Cost</th>
-                    <th className="text-center py-1.5 px-2 font-bold text-muted-foreground w-[50px]"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {scEvents
-                    .sort((a, b) => a.date.localeCompare(b.date))
-                    .map((ev) => (
-                    <tr key={ev.id} className="border-b border-border/50 hover:bg-muted/30">
-                      <td className="py-1.5 px-2">
-                        <Input
-                          type="date"
-                          value={ev.date}
-                          onChange={(e) => updateSCEvent(ev.id, "date", e.target.value)}
-                          className="h-7 text-xs font-mono"
-                        />
-                      </td>
-                      <td className="py-1.5 px-2">
-                        <Select value={ev.type} onValueChange={(v) => updateSCEvent(ev.id, "type", v)}>
-                          <SelectTrigger className="h-7 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(Object.keys(SC_EVENT_LABELS) as SCEventType[]).map(t => (
-                              <SelectItem key={t} value={t} className="text-xs">{SC_EVENT_LABELS[t]}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </td>
-                      <td className="py-1.5 px-2">
-                        <Select value={ev.product} onValueChange={(v) => updateSCEvent(ev.id, "product", v)}>
-                          <SelectTrigger className="h-7 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(Object.keys(SC_PRODUCT_LABELS) as SCProduct[]).map(p => (
-                              <SelectItem key={p} value={p} className="text-xs">{SC_PRODUCT_LABELS[p]}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </td>
-                      <td className="py-1.5 px-2">
-                        <Input
-                          value={ev.description}
-                          onChange={(e) => updateSCEvent(ev.id, "description", e.target.value)}
-                          className="h-7 text-xs"
-                          placeholder="Event description..."
-                        />
-                      </td>
-                      <td className="py-1.5 px-2">
-                        <Input
-                          type="number"
-                          value={ev.qty}
-                          onChange={(e) => updateSCEvent(ev.id, "qty", parseInt(e.target.value) || 0)}
-                          className="h-7 text-xs font-mono text-right"
-                        />
-                      </td>
-                      <td className="py-1.5 px-2">
-                        <div className="flex items-center gap-0.5">
-                          <span className="text-[10px] text-muted-foreground">$</span>
-                          <Input
-                            type="number"
-                            value={ev.cost}
-                            onChange={(e) => updateSCEvent(ev.id, "cost", parseFloat(e.target.value) || 0)}
-                            className="h-7 text-xs font-mono text-right"
-                          />
-                        </div>
-                      </td>
-                      <td className="py-1.5 px-2 text-center">
-                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => removeSCEvent(ev.id)}>
-                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                {scEvents.length > 0 && (
-                  <tfoot>
-                    <tr className="border-t-2 border-border">
-                      <td colSpan={4} className="py-2 px-2 font-bold text-foreground">Totals</td>
-                      <td className="py-2 px-2 text-right font-mono font-bold text-foreground">
-                        {scEvents.reduce((s, e) => s + e.qty, 0).toLocaleString()}
-                      </td>
-                      <td className="py-2 px-2 text-right font-mono font-bold text-destructive">
-                        {fmt(scEvents.reduce((s, e) => s + e.cost, 0))}
-                      </td>
-                      <td></td>
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
-            </CardContent></Card>
-
-            {scEvents.length === 0 && (
-              <Card className="mt-4 border-dashed">
-                <CardContent className="p-6 text-center">
-                  <p className="text-sm text-muted-foreground mb-2">No scheduled events. The simulation will use auto-trigger logic based on buffer levels.</p>
-                  <Button size="sm" variant="outline" onClick={resetSCEvents}>
-                    Load Default Scenario
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Timeline visualization */}
-            {scEvents.length > 0 && (
-              <>
-                <SectionHeader sub="Visual timeline of your scheduled supply chain events">EVENT TIMELINE</SectionHeader>
-                <Card><CardContent className="p-4">
-                  <div className="relative pl-5 border-l-2 border-accent/30 space-y-3">
-                    {scEvents
-                      .sort((a, b) => a.date.localeCompare(b.date))
-                      .map((ev) => {
-                        const colorClass = SC_EVENT_COLORS[ev.type] || "text-foreground";
-                        return (
-                          <div key={ev.id} className="relative">
-                            <div className={`absolute -left-[23px] top-1 w-3 h-3 rounded-full border-2 border-background ${
-                              ev.type.startsWith("tube") ? "bg-accent" :
-                              ev.type.startsWith("production") ? "bg-warning" :
-                              "bg-success"
-                            }`} />
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <span className="text-xs font-bold text-foreground">{format(new Date(ev.date + "T00:00:00"), "MMM d")}</span>
-                                <Badge variant="outline" className={`ml-2 text-[10px] ${colorClass}`}>
-                                  {SC_EVENT_LABELS[ev.type]}
-                                </Badge>
-                                <Badge variant="secondary" className="ml-1 text-[10px]">
-                                  {SC_PRODUCT_LABELS[ev.product]}
-                                </Badge>
-                                <span className="text-xs text-muted-foreground ml-2">{ev.description}</span>
-                              </div>
-                              <div className="flex items-center gap-3 ml-2 whitespace-nowrap">
-                                {ev.qty > 0 && <span className="text-xs font-mono font-semibold text-foreground">{ev.qty.toLocaleString()}</span>}
-                                {ev.cost > 0 && <span className="text-xs font-mono font-semibold text-destructive">-{fmt(ev.cost)}</span>}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                  </div>
-                </CardContent></Card>
-              </>
-            )}
-          </TabsContent>
 
           {/* ── Tab 5: Action Plan ───────────────────────────── */}
           <TabsContent value="actions">
