@@ -1,62 +1,40 @@
 
 
-## Plan: Supply Chain Event Scheduler
+## Plan: Schedule Save Button + Product Differentiation (Tubes vs Finished Product)
 
-### Problem
-The current model assumes uniform tube orders and production runs — one size, one lead time, one arrival. Your real scenario has staggered tranches (air freight Apr 12, ocean freight ~May 3), split production runs (15k each), and cascading timelines. Adding more individual input fields won't scale — you need a **scheduled events table**.
+### What changes
 
-### Solution: Replace auto-trigger logic with a manually editable event schedule
+**1. Add a "Save Schedule" button** to the Schedule tab that persists events to localStorage and re-runs the simulation. Currently events are only saved when the main sidebar "Save" is clicked — give the schedule its own save button with toast confirmation.
 
-Add a **Supply Chain Schedule** — a table of discrete planned events the user defines, each with a date, type, quantity, and cost. The simulation processes these events in date order instead of (or alongside) the auto-trigger system.
+**2. Add a "product" field to `SupplyChainEvent`** with values `"tubes"` or `"finished_product"` (Spaghetti Dust). This disambiguates what each event refers to:
+- `tube_arrival` → product defaults to `"tubes"`, adds to `simTubes`
+- `production_start` → product defaults to `"tubes"`, subtracts from `simTubes` (tubes consumed)
+- `production_complete` / `freight_arrival` → product defaults to `"finished_product"`, adds to `simInventory`
+- `tube_order` / `tube_payment` → product defaults to `"tubes"` (cash-only, no inventory change)
 
-### Event types
+**3. Add a "Product" column** to the schedule table with a dropdown (`Tubes` / `Spaghetti Dust`). Pre-populated defaults set automatically based on event type.
 
-| Type | Fields | Effect on simulation |
-|------|--------|---------------------|
-| `tube_order` | date, qty, cost, payment split | Schedules tube payment tranches |
-| `tube_arrival` | date, qty, source label | Adds tubes to AES inventory |
-| `production_start` | date, qty (tubes consumed) | Consumes tubes, starts production timer |
-| `production_complete` | date, qty | Triggers AES invoice + freight |
-| `freight_arrival` | date, qty | Adds finished goods to Sabah inventory |
+**4. Update simulation logic** to use the `product` field: `tube_arrival` with product `"tubes"` adds to tubes; `freight_arrival` with product `"finished_product"` adds to finished inventory. This makes the inventory chart correctly reflect both lines.
 
-### UI approach
+### Simulation mapping
 
-**New "Schedule" sub-tab** inside Cash Planner (alongside Cash Forecast, Inventory & Timing, Pipeline):
-- Table with columns: Date, Type (dropdown), Description, Qty, Cost
-- Pre-populated with the user's current real scenario (air freight Apr 12, ocean May 3, etc.)
-- Add/remove rows
-- Events saved to localStorage alongside other inputs
-
-### Example: User's current scenario as events
-
-```text
-Mar 2   tube_order        30k tubes ordered, deposit 25%        $2,325
-Mar 16  tube_payment      Printing complete, 25%                $2,325
-Apr 5   tube_payment      Balance before ship, 50%              $4,650
-Apr 12  tube_arrival      Air freight tranche — 15k tubes        15,000
-May 3   tube_arrival      Ocean freight tranche — 15k tubes      15,000
-May 10  production_start  Run 1 — 15k tubes consumed             15,000
-May 17  production_complete  Run 1 done → freight ships           15,000
-May 24  freight_arrival   Run 1 — 15k units arrive at Sabah      15,000
-May 17  production_start  Run 2 — 15k tubes consumed             15,000
-May 24  production_complete  Run 2 done                           15,000
-May 31  freight_arrival   Run 2 — 15k units arrive at Sabah      15,000
-```
-
-### Simulation changes
-
-- The `useModel` first-pass trigger logic gains a new path: if `scheduledEvents` exist, process them by date instead of auto-triggering
-- Auto-trigger still works as a fallback for future cycles beyond the manually scheduled ones
-- Each event type maps to specific simulation effects (add/subtract inventory, schedule payments, etc.)
+| Event Type | Product | Inventory Effect |
+|---|---|---|
+| `tube_arrival` | Tubes | `simTubes += qty` |
+| `production_start` | Tubes | `simTubes -= qty` (consumed) |
+| `production_complete` | Spaghetti Dust | No immediate inventory change (in-transit) |
+| `freight_arrival` | Spaghetti Dust | `simInventory += qty` |
+| `tube_order` | Tubes | Cash outflow only |
+| `tube_payment` | Tubes | Cash outflow only |
 
 ### Changes — `src/components/tabs/CashPlannerTab.tsx`
 
-1. **New type** `ScheduledEvent` with fields: `id, date, type, description, qty, cost, paymentPct`
-2. **New state** `scheduledEvents` array, saved/loaded from localStorage
-3. **New Schedule sub-tab** with editable table + add/remove controls
-4. **Simulation update**: process scheduled events by converting dates to week indices and applying effects in the main simulation loop
-5. **Keep auto-trigger as fallback** for periods beyond the last scheduled event
-6. **Pre-populate defaults** matching the user's current real scenario
+1. Add `product: "tubes" | "finished_product"` field to `SupplyChainEvent`
+2. Update `defaultScheduledEvents` with correct `product` values
+3. Add "Product" dropdown column to schedule table (Tubes / Spaghetti Dust)
+4. Auto-set product when event type changes (tube events → tubes, production_complete/freight_arrival → finished_product)
+5. Add dedicated "Save Schedule" button that persists to localStorage and shows toast
+6. Simulation already handles these event types correctly — verify product field is used for any edge cases
 
 ### Files
 - **Edit**: `src/components/tabs/CashPlannerTab.tsx`
