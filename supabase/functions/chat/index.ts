@@ -13,6 +13,15 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
+    const clientMessages = Array.isArray(messages) ? messages : [];
+    const hasClientSystem = clientMessages.some((m: any) => m.role === "system");
+    const finalMessages = hasClientSystem
+      ? clientMessages
+      : [
+          { role: "system", content: "You are an expert inventory assistant. Be concise. When asked about this app, you know there is a dashboard with inventory, pending orders, email POs, and Google Sheets sync. If you need data, ask the user to sync first." },
+          ...clientMessages,
+        ];
+
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -20,11 +29,7 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        // Default model is google/gemini-2.5-flash; override by passing model from client if needed
-        messages: [
-          { role: "system", content: "You are an expert inventory assistant. Be concise. When asked about this app, you know there is a dashboard with inventory, pending orders, email POs, and Google Sheets sync. If you need data, ask the user to sync first." },
-          ...(Array.isArray(messages) ? messages : []),
-        ],
+        messages: finalMessages,
         stream: true,
       }),
     });

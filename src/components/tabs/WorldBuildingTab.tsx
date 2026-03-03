@@ -96,7 +96,7 @@ export const WorldBuildingTab = () => {
       const res = await supabase.functions.invoke("chat", {
         body: {
           messages: [
-            { role: "system", content: `Extract tasks from the user's input for a "World Building" tracker. Categories: substack, lovable, website, artifacts, merch. Return ONLY a JSON array: [{"title":"...","category":"...","priority":"high|medium|low"}]` },
+            { role: "system", content: `You are a task extraction assistant. Extract every distinct task from the user's input for a "World Building" tracker. Categories (pick the best fit): substack, lovable, website, artifacts, merch. Return ONLY a valid JSON array, no markdown fences, no explanation. Format: [{"title":"...","category":"...","priority":"high|medium|low"}]. If a task mentions Substack or articles, use "substack". If it mentions Lovable or building/coding, use "lovable". If it mentions website, .world, or pages, use "website". If it mentions design, photography, packaging, or artwork, use "artifacts". If it mentions merch, hats, shirts, books, Shopify, or bundles, use "merch". Default priority to "medium" unless urgency is implied.` },
             { role: "user", content: nlInput },
           ],
         },
@@ -117,9 +117,11 @@ export const WorldBuildingTab = () => {
           }
         }
       }
-      const m = fullText.match(/\[[\s\S]*\]/);
+      // Strip markdown fences if present
+      let cleaned = fullText.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+      const m = cleaned.match(/\[[\s\S]*\]/);
       if (m) setParsedTasks(JSON.parse(m[0]));
-      else toast({ title: "Couldn't parse tasks", variant: "destructive" });
+      else toast({ title: "Couldn't parse tasks", description: "AI didn't return valid JSON. Try a shorter prompt.", variant: "destructive" });
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     } finally { setNlParsing(false); }
