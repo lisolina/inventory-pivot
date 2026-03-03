@@ -10,7 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { AlertTriangle, TrendingUp, Package, DollarSign, ShieldCheck, Save, RotateCcw, ChevronLeft, ChevronRight, CalendarDays, Clock, Truck, Factory, FlaskConical } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AlertTriangle, TrendingUp, Package, DollarSign, ShieldCheck, Save, RotateCcw, ChevronLeft, ChevronRight, CalendarDays, Clock, Truck, Factory, FlaskConical, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import { addWeeks, addDays, format, differenceInWeeks, startOfMonth, getDaysInMonth, getDay } from "date-fns";
@@ -54,6 +55,60 @@ function weeksInMonthForWeek(weekIndex: number): number {
   const date = weekToDate(weekIndex);
   const daysInMo = getDaysInMonth(date);
   return daysInMo / 7;
+}
+
+// ── Supply Chain Event Types ────────────────────────────────────────
+type SCEventType = "tube_order" | "tube_payment" | "tube_arrival" | "production_start" | "production_complete" | "freight_arrival";
+
+interface SupplyChainEvent {
+  id: string;
+  date: string; // YYYY-MM-DD
+  type: SCEventType;
+  description: string;
+  qty: number;
+  cost: number;
+}
+
+const SC_EVENT_LABELS: Record<SCEventType, string> = {
+  tube_order: "Tube Order",
+  tube_payment: "Tube Payment",
+  tube_arrival: "Tube Arrival",
+  production_start: "Production Start",
+  production_complete: "Production Complete",
+  freight_arrival: "Freight Arrival",
+};
+
+const SC_EVENT_COLORS: Record<SCEventType, string> = {
+  tube_order: "text-accent",
+  tube_payment: "text-accent",
+  tube_arrival: "text-info",
+  production_start: "text-warning",
+  production_complete: "text-warning",
+  freight_arrival: "text-success",
+};
+
+const defaultScheduledEvents: SupplyChainEvent[] = [
+  { id: "sc-1", date: "2026-03-02", type: "tube_order", description: "30k tubes ordered, deposit 25%", qty: 30000, cost: 2325 },
+  { id: "sc-2", date: "2026-03-16", type: "tube_payment", description: "Printing complete, 25%", qty: 0, cost: 2325 },
+  { id: "sc-3", date: "2026-04-05", type: "tube_payment", description: "Balance before ship, 50%", qty: 0, cost: 4650 },
+  { id: "sc-4", date: "2026-04-12", type: "tube_arrival", description: "Air freight tranche — 15k tubes", qty: 15000, cost: 0 },
+  { id: "sc-5", date: "2026-05-03", type: "tube_arrival", description: "Ocean freight tranche — 15k tubes", qty: 15000, cost: 0 },
+  { id: "sc-6", date: "2026-05-10", type: "production_start", description: "Run 1 — 15k tubes consumed", qty: 15000, cost: 0 },
+  { id: "sc-7", date: "2026-05-17", type: "production_complete", description: "Run 1 done → freight ships", qty: 15000, cost: 0 },
+  { id: "sc-8", date: "2026-05-24", type: "freight_arrival", description: "Run 1 — 15k units arrive at Sabah", qty: 15000, cost: 0 },
+  { id: "sc-9", date: "2026-05-17", type: "production_start", description: "Run 2 — 15k tubes consumed", qty: 15000, cost: 0 },
+  { id: "sc-10", date: "2026-05-24", type: "production_complete", description: "Run 2 done", qty: 15000, cost: 0 },
+  { id: "sc-11", date: "2026-05-31", type: "freight_arrival", description: "Run 2 — 15k units arrive at Sabah", qty: 15000, cost: 0 },
+];
+
+const SC_EVENTS_STORAGE_KEY = "lisolina-sc-events";
+
+function loadSavedSCEvents(): SupplyChainEvent[] {
+  try {
+    const saved = localStorage.getItem(SC_EVENTS_STORAGE_KEY);
+    if (saved) return JSON.parse(saved);
+  } catch {}
+  return defaultScheduledEvents;
 }
 
 // ── Default model inputs ────────────────────────────────────────────
@@ -312,7 +367,7 @@ function ProductionRunArrows({ xAxisMap, yAxisMap, annotations }: { xAxisMap: an
 }
 
 // ── Core planner model (full-year simulation with sliding 16-week view) ──
-function useModel(inputs: Inputs, startWeekOffset: number, todayWeekOffset: number, approvals: Record<string, boolean>) {
+function useModel(inputs: Inputs, startWeekOffset: number, todayWeekOffset: number, approvals: Record<string, boolean>, scEvents: SupplyChainEvent[]) {
   return useMemo(() => {
     const yearEndAbsWeek = differenceInWeeks(new Date(2026, 11, 31), EPOCH);
     const totalSimWeeks = Math.max(16, yearEndAbsWeek - todayWeekOffset + 1);
@@ -351,6 +406,23 @@ function useModel(inputs: Inputs, startWeekOffset: number, todayWeekOffset: numb
     const tubeMidpointWeek = Math.round(tubeLeadWeeks / 2);
     const aesNetWeeks = Math.ceil(aesNetDays / 7);
 
+    // ── Convert SC events to relative week indices ──
+    const hasScheduledEvents = scEvents.length > 0;
+    const scEventsByRelWeek: Map<number, SupplyChainEvent[]> = new Map();
+    let lastScheduledRelWeek = -1;
+
+    if (hasScheduledEvents) {
+      for (const ev of scEvents) {
+        const absWeek = dateToWeekIndex(ev.date);
+        const relWeek = absWeek - todayWeekOffset;
+        if (relWeek >= 0 && relWeek < totalSimWeeks) {
+          if (!scEventsByRelWeek.has(relWeek)) scEventsByRelWeek.set(relWeek, []);
+          scEventsByRelWeek.get(relWeek)!.push(ev);
+          if (relWeek > lastScheduledRelWeek) lastScheduledRelWeek = relWeek;
+        }
+      }
+    }
+
     // Funding date overrides → absolute week indices
     const ingredientFundingAbsWeek = ingredientFundingDate ? dateToWeekIndex(ingredientFundingDate) : -1;
     const productionFundingAbsWeek = productionFundingDate ? dateToWeekIndex(productionFundingDate) : -1;
@@ -382,7 +454,7 @@ function useModel(inputs: Inputs, startWeekOffset: number, todayWeekOffset: numb
     let nextEligibleTubeOrderWeek = 0;
     let cycleCounter = 0;
 
-    // ── First pass: identify triggers (full year) ──
+    // ── First pass: process scheduled events + auto-trigger fallback ──
     let simInventory = inventoryOnHand;
     let simTubes = tubesOnHand;
     const triggers: { week: number; type: "production" | "tube_order"; cycleId: number }[] = [];
@@ -391,62 +463,113 @@ function useModel(inputs: Inputs, startWeekOffset: number, todayWeekOffset: numb
     let tubeOrderPlaced = false;
     let simCycle = 0;
 
+    // Build SC event cash impacts (tube_order, tube_payment costs)
+    const scCashOutByRelWeek: Map<number, { amount: number; label: string; category: string }[]> = new Map();
+
+    if (hasScheduledEvents) {
+      for (const ev of scEvents) {
+        const absWeek = dateToWeekIndex(ev.date);
+        const relWeek = absWeek - todayWeekOffset;
+        if (relWeek < 0 || relWeek >= totalSimWeeks) continue;
+
+        if (ev.cost > 0) {
+          const id = `sc-pay-${ev.id}`;
+          scheduledExpenses.push({
+            id, weekIndex: relWeek, absWeek, dateLabel: weekLabel(absWeek),
+            description: ev.description, amount: ev.cost,
+            category: ev.type.startsWith("tube") ? "tubes" : ev.type === "freight_arrival" ? "freight" : "production",
+            approved: approvals[id] !== false, cycleId: 0,
+          });
+          deferredPayments.push({
+            week: relWeek, amount: ev.cost, label: ev.description,
+            category: ev.type.startsWith("tube") ? "tubes" : "production",
+            expenseId: id, cycleId: 0,
+          });
+        }
+      }
+    }
+
+    // First-pass simulation: handle SC events for inventory/tube effects, then auto-trigger after last scheduled event
     for (let w = 0; w < totalSimWeeks; w++) {
       const unitsSold = Math.min(weeklyVelocity, simInventory);
       simInventory -= unitsSold;
 
+      // Process scheduled production arrivals (from auto-trigger)
       productionScheduled.forEach((ps) => {
         if (ps.arriveWeek === w && ps.type === "tubes") simTubes += ps.qty;
         if (ps.arriveWeek === w && ps.type === "finished") simInventory += ps.qty;
       });
 
-      // Tube ordering: use manual date if set, otherwise auto-trigger based on tube buffer
-      if (tubeOrderRelWeek >= 0) {
-        if (w === tubeOrderRelWeek && !tubeOrderPlaced) {
-          simCycle++;
-          triggers.push({ week: w, type: "tube_order", cycleId: simCycle });
-          simNextTube = w + tubeLeadWeeks + 2;
-          productionScheduled.push({ arriveWeek: w + tubeLeadWeeks, type: "tubes", qty: tubeOrderSize });
-          tubeOrderPlaced = true;
-          productionAnnotations.push({
-            relWeek: w, absWeek: todayWeekOffset + w,
-            label: weekLabel(todayWeekOffset + w), runSize: tubeOrderSize, poType: "tube_order",
-          });
-        }
-      } else {
-        if (w >= simNextTube && simTubes < tubeBufferThreshold) {
-          simCycle++;
-          triggers.push({ week: w, type: "tube_order", cycleId: simCycle });
-          simNextTube = w + tubeLeadWeeks + 2;
-          productionScheduled.push({ arriveWeek: w + tubeLeadWeeks, type: "tubes", qty: tubeOrderSize });
-          productionAnnotations.push({
-            relWeek: w, absWeek: todayWeekOffset + w,
-            label: weekLabel(todayWeekOffset + w), runSize: tubeOrderSize, poType: "tube_order",
-          });
+      // Process SC events at this week
+      const eventsThisWeek = scEventsByRelWeek.get(w);
+      if (eventsThisWeek) {
+        for (const ev of eventsThisWeek) {
+          switch (ev.type) {
+            case "tube_arrival":
+              simTubes += ev.qty;
+              break;
+            case "production_start":
+              simTubes = Math.max(0, simTubes - ev.qty);
+              break;
+            case "freight_arrival":
+              simInventory += ev.qty;
+              break;
+            // tube_order, tube_payment, production_complete are cash-only events handled above
+          }
         }
       }
 
-      const bufferThreshold = weeklyVelocity * minWeeksStock;
-      if (w >= simNextProd && simInventory <= bufferThreshold) {
-        const thisCycle = simCycle > 0 ? simCycle : ++simCycle;
-        const poWeek = w; // PO recommended at buffer hit
-        const actualProductionStart = w + poToProductionWeeks; // production starts later
-        triggers.push({ week: actualProductionStart, type: "production", cycleId: thisCycle });
-        simNextProd = actualProductionStart + totalLeadWeeks;
-        simTubes = Math.max(0, simTubes - productionRunSize);
-        productionScheduled.push({ arriveWeek: actualProductionStart + productionLeadWeeks + freightToSabahWeeks, type: "finished", qty: productionRunSize });
+      // Auto-trigger fallback: only for weeks beyond the last scheduled event
+      const useAutoTrigger = !hasScheduledEvents || w > lastScheduledRelWeek;
 
-        // Annotation at PO recommendation date (buffer hit), not production start
-        productionAnnotations.push({
-          relWeek: poWeek, absWeek: todayWeekOffset + poWeek,
-          label: weekLabel(todayWeekOffset + poWeek), runSize: productionRunSize, poType: "production",
-        });
+      if (useAutoTrigger) {
+        // Tube ordering: use manual date if set, otherwise auto-trigger based on tube buffer
+        if (tubeOrderRelWeek >= 0) {
+          if (w === tubeOrderRelWeek && !tubeOrderPlaced) {
+            simCycle++;
+            triggers.push({ week: w, type: "tube_order", cycleId: simCycle });
+            simNextTube = w + tubeLeadWeeks + 2;
+            productionScheduled.push({ arriveWeek: w + tubeLeadWeeks, type: "tubes", qty: tubeOrderSize });
+            tubeOrderPlaced = true;
+            productionAnnotations.push({
+              relWeek: w, absWeek: todayWeekOffset + w,
+              label: weekLabel(todayWeekOffset + w), runSize: tubeOrderSize, poType: "tube_order",
+            });
+          }
+        } else {
+          if (w >= simNextTube && simTubes < tubeBufferThreshold) {
+            simCycle++;
+            triggers.push({ week: w, type: "tube_order", cycleId: simCycle });
+            simNextTube = w + tubeLeadWeeks + 2;
+            productionScheduled.push({ arriveWeek: w + tubeLeadWeeks, type: "tubes", qty: tubeOrderSize });
+            productionAnnotations.push({
+              relWeek: w, absWeek: todayWeekOffset + w,
+              label: weekLabel(todayWeekOffset + w), runSize: tubeOrderSize, poType: "tube_order",
+            });
+          }
+        }
+
+        const bufferThreshold = weeklyVelocity * minWeeksStock;
+        if (w >= simNextProd && simInventory <= bufferThreshold) {
+          const thisCycle = simCycle > 0 ? simCycle : ++simCycle;
+          const poWeek = w;
+          const actualProductionStart = w + poToProductionWeeks;
+          triggers.push({ week: actualProductionStart, type: "production", cycleId: thisCycle });
+          simNextProd = actualProductionStart + totalLeadWeeks;
+          simTubes = Math.max(0, simTubes - productionRunSize);
+          productionScheduled.push({ arriveWeek: actualProductionStart + productionLeadWeeks + freightToSabahWeeks, type: "finished", qty: productionRunSize });
+
+          productionAnnotations.push({
+            relWeek: poWeek, absWeek: todayWeekOffset + poWeek,
+            label: weekLabel(todayWeekOffset + poWeek), runSize: productionRunSize, poType: "production",
+          });
+        }
       }
     }
 
     productionScheduled.length = 0;
 
-    // Build scheduled expenses from triggers
+    // Build scheduled expenses from auto-triggers (only for cycles beyond scheduled events)
     for (const trigger of triggers) {
       const w = trigger.week;
       const absW = todayWeekOffset + w;
@@ -502,7 +625,6 @@ function useModel(inputs: Inputs, startWeekOffset: number, todayWeekOffset: numb
         const freightCost = Math.round(freightPerRun);
         const productionStartWeek = w;
 
-        // Use funding date overrides or formula
         const ingredientOrderWeekRel = ingredientFundingAbsWeek >= 0
           ? ingredientFundingAbsWeek - todayWeekOffset
           : Math.max(0, productionStartWeek - ingredientLeadWeeks);
@@ -577,6 +699,45 @@ function useModel(inputs: Inputs, startWeekOffset: number, todayWeekOffset: numb
       }
     }
 
+    // ── Build pipeline items from SC events ──
+    if (hasScheduledEvents) {
+      // Group by type for pipeline visualization
+      const tubeArrivals = scEvents.filter(e => e.type === "tube_arrival");
+      for (const ev of tubeArrivals) {
+        const absWeek = dateToWeekIndex(ev.date);
+        // Find the tube order event as start
+        const tubeOrder = scEvents.find(e => e.type === "tube_order");
+        const orderAbsWeek = tubeOrder ? dateToWeekIndex(tubeOrder.date) : absWeek - 5;
+        pipelineItems.push({
+          type: "tubes", description: ev.description,
+          startWeek: orderAbsWeek, arriveWeek: absWeek,
+          qty: ev.qty, cost: 0, cycleId: 0,
+        });
+      }
+      const prodStarts = scEvents.filter(e => e.type === "production_start");
+      const prodCompletes = scEvents.filter(e => e.type === "production_complete");
+      const freightArrivals = scEvents.filter(e => e.type === "freight_arrival");
+      for (let i = 0; i < prodStarts.length; i++) {
+        const start = prodStarts[i];
+        const complete = prodCompletes[i];
+        const freight = freightArrivals[i];
+        if (start && complete) {
+          pipelineItems.push({
+            type: "production", description: start.description,
+            startWeek: dateToWeekIndex(start.date), arriveWeek: dateToWeekIndex(complete.date),
+            qty: start.qty, cycleId: 0,
+          });
+        }
+        if (complete && freight) {
+          pipelineItems.push({
+            type: "freight", description: freight.description,
+            startWeek: dateToWeekIndex(complete.date), arriveWeek: dateToWeekIndex(freight.date),
+            qty: freight.qty, cycleId: 0,
+          });
+        }
+      }
+    }
+
     // ── Inject known fixed expenses ──
     for (const kfe of KNOWN_FIXED_EXPENSES) {
       const relWeek = kfe.dateWeekIdx - todayWeekOffset;
@@ -596,6 +757,7 @@ function useModel(inputs: Inputs, startWeekOffset: number, todayWeekOffset: numb
     tubes = tubesOnHand;
     cashBalance = cashOnHand;
     const arrivals2: typeof productionScheduled = [];
+    // Add auto-trigger arrivals
     for (const trigger of triggers) {
       if (trigger.type === "tube_order") {
         arrivals2.push({ arriveWeek: trigger.week + tubeLeadWeeks, type: "tubes", qty: tubeOrderSize });
@@ -672,12 +834,31 @@ function useModel(inputs: Inputs, startWeekOffset: number, todayWeekOffset: numb
         }
       });
 
-      // Arrivals
+      // Arrivals from auto-triggers
       arrivals2.forEach((ps) => {
         if (ps.arriveWeek === w && ps.type === "tubes") tubes += ps.qty;
         if (ps.arriveWeek === w && ps.type === "finished") inventory += ps.qty;
       });
 
+      // SC event arrivals (second pass)
+      const eventsThisWeek2 = scEventsByRelWeek.get(w);
+      if (eventsThisWeek2) {
+        for (const ev of eventsThisWeek2) {
+          switch (ev.type) {
+            case "tube_arrival":
+              tubes += ev.qty;
+              break;
+            case "production_start":
+              tubes = Math.max(0, tubes - ev.qty);
+              break;
+            case "freight_arrival":
+              inventory += ev.qty;
+              break;
+          }
+        }
+      }
+
+      // Auto-trigger tube consumption
       triggers.forEach(t => {
         if (t.type === "production" && t.week === w) tubes = Math.max(0, tubes - productionRunSize);
       });
@@ -739,7 +920,7 @@ function useModel(inputs: Inputs, startWeekOffset: number, todayWeekOffset: numb
       tubeBufferHitAbsWeek: tubeBufferHitWeek >= 0 ? todayWeekOffset + tubeBufferHitWeek : -1,
       productionAnnotations: visibleAnnotations,
     };
-  }, [inputs, startWeekOffset, todayWeekOffset, approvals]);
+  }, [inputs, startWeekOffset, todayWeekOffset, approvals, scEvents]);
 }
 
 // ── Custom tooltip for cash forecast ────────────────────────────────
@@ -792,11 +973,12 @@ export function CashPlannerTab() {
   const [inputs, setInputs] = useState<Inputs>(loadSavedInputs);
   const [startWeekOffset, setStartWeekOffset] = useState(() => currentWeekIndex());
   const [approvals, setApprovals] = useState<Record<string, boolean>>(loadSavedApprovals);
+  const [scEvents, setSCEvents] = useState<SupplyChainEvent[]>(loadSavedSCEvents);
   const set = useCallback((key: keyof Inputs) => (val: number) => setInputs((p) => ({ ...p, [key]: val })), []);
   const setStr = useCallback((key: keyof Inputs) => (val: string) => setInputs((p) => ({ ...p, [key]: val })), []);
   const todayWeek = useMemo(() => currentWeekIndex(), []);
   const yearEndAbsWeek = useMemo(() => differenceInWeeks(new Date(2026, 11, 31), EPOCH), []);
-  const model = useModel(inputs, startWeekOffset, todayWeek, approvals);
+  const model = useModel(inputs, startWeekOffset, todayWeek, approvals, scEvents);
 
   const goBack = () => setStartWeekOffset((o) => Math.max(todayWeek, o - 4));
   const goForward = () => setStartWeekOffset((o) => Math.min(yearEndAbsWeek - 15, o + 4));
@@ -805,18 +987,46 @@ export function CashPlannerTab() {
   const handleSave = useCallback(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(inputs));
     localStorage.setItem(APPROVALS_KEY, JSON.stringify(approvals));
-    toast({ title: "Inputs saved", description: "Model inputs and expense approvals saved." });
-  }, [inputs, approvals]);
+    localStorage.setItem(SC_EVENTS_STORAGE_KEY, JSON.stringify(scEvents));
+    toast({ title: "Inputs saved", description: "Model inputs, approvals, and schedule saved." });
+  }, [inputs, approvals, scEvents]);
 
   const handleReset = useCallback(() => {
     const saved = loadSavedInputs();
     setInputs(saved);
     setApprovals(loadSavedApprovals());
+    setSCEvents(loadSavedSCEvents());
     toast({ title: "Inputs refreshed", description: "Restored from last save." });
   }, []);
 
   const toggleApproval = useCallback((id: string) => {
     setApprovals(prev => ({ ...prev, [id]: prev[id] === false ? true : false }));
+  }, []);
+
+  // SC event CRUD
+  const addSCEvent = useCallback(() => {
+    const newId = `sc-${Date.now()}`;
+    setSCEvents(prev => [...prev, {
+      id: newId,
+      date: format(new Date(), "yyyy-MM-dd"),
+      type: "tube_arrival" as SCEventType,
+      description: "",
+      qty: 0,
+      cost: 0,
+    }]);
+  }, []);
+
+  const updateSCEvent = useCallback((id: string, field: keyof SupplyChainEvent, value: any) => {
+    setSCEvents(prev => prev.map(ev => ev.id === id ? { ...ev, [field]: value } : ev));
+  }, []);
+
+  const removeSCEvent = useCallback((id: string) => {
+    setSCEvents(prev => prev.filter(ev => ev.id !== id));
+  }, []);
+
+  const resetSCEvents = useCallback(() => {
+    setSCEvents(defaultScheduledEvents);
+    toast({ title: "Schedule reset", description: "Restored to default scenario." });
   }, []);
 
   return (
@@ -872,7 +1082,7 @@ export function CashPlannerTab() {
         <InputField label="Tube Printing %" value={inputs.tubePaymentPct2} onChange={set("tubePaymentPct2")} suffix="%" step={5} />
         <InputField label="AES Net Terms" value={inputs.aesNetDays} onChange={set("aesNetDays")} suffix="days" step={15} />
 
-        <SidebarSection>Production</SidebarSection>
+        <SidebarSection>Production (Auto-trigger fallback)</SidebarSection>
         <InputField label="Run Size" value={inputs.productionRunSize} onChange={set("productionRunSize")} suffix="units" step={500} />
 
         <div className="grid grid-cols-2 gap-2">
@@ -957,6 +1167,7 @@ export function CashPlannerTab() {
             <TabsTrigger value="forecast">Cash Forecast</TabsTrigger>
             <TabsTrigger value="channels">Channel Mix</TabsTrigger>
             <TabsTrigger value="inventory">Inventory & Timing</TabsTrigger>
+            <TabsTrigger value="schedule">Schedule</TabsTrigger>
             <TabsTrigger value="actions">Action Plan</TabsTrigger>
           </TabsList>
 
@@ -1273,7 +1484,162 @@ export function CashPlannerTab() {
             </CardContent></Card>
           </TabsContent>
 
-          {/* ── Tab 4: Action Plan ───────────────────────────── */}
+          {/* ── Tab 4: Supply Chain Schedule ──────────────────── */}
+          <TabsContent value="schedule">
+            <SectionHeader sub="Define discrete supply chain events — tube orders, arrivals, production runs, freight. These override auto-trigger logic.">SUPPLY CHAIN SCHEDULE</SectionHeader>
+            
+            <div className="flex items-center gap-2 mb-4">
+              <Button size="sm" variant="default" onClick={addSCEvent}>
+                <Plus className="h-3.5 w-3.5 mr-1" /> Add Event
+              </Button>
+              <Button size="sm" variant="outline" onClick={resetSCEvents}>
+                <RotateCcw className="h-3.5 w-3.5 mr-1" /> Reset to Default
+              </Button>
+              <span className="text-[11px] text-muted-foreground ml-2">
+                {scEvents.length} events • Auto-trigger kicks in after last scheduled event
+              </span>
+            </div>
+
+            <Card><CardContent className="pt-4 pb-2 overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left py-1.5 px-2 font-bold text-muted-foreground w-[120px]">Date</th>
+                    <th className="text-left py-1.5 px-2 font-bold text-muted-foreground w-[160px]">Type</th>
+                    <th className="text-left py-1.5 px-2 font-bold text-muted-foreground">Description</th>
+                    <th className="text-right py-1.5 px-2 font-bold text-muted-foreground w-[90px]">Qty</th>
+                    <th className="text-right py-1.5 px-2 font-bold text-muted-foreground w-[100px]">Cost</th>
+                    <th className="text-center py-1.5 px-2 font-bold text-muted-foreground w-[50px]"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {scEvents
+                    .sort((a, b) => a.date.localeCompare(b.date))
+                    .map((ev) => (
+                    <tr key={ev.id} className="border-b border-border/50 hover:bg-muted/30">
+                      <td className="py-1.5 px-2">
+                        <Input
+                          type="date"
+                          value={ev.date}
+                          onChange={(e) => updateSCEvent(ev.id, "date", e.target.value)}
+                          className="h-7 text-xs font-mono"
+                        />
+                      </td>
+                      <td className="py-1.5 px-2">
+                        <Select value={ev.type} onValueChange={(v) => updateSCEvent(ev.id, "type", v)}>
+                          <SelectTrigger className="h-7 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(Object.keys(SC_EVENT_LABELS) as SCEventType[]).map(t => (
+                              <SelectItem key={t} value={t} className="text-xs">{SC_EVENT_LABELS[t]}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </td>
+                      <td className="py-1.5 px-2">
+                        <Input
+                          value={ev.description}
+                          onChange={(e) => updateSCEvent(ev.id, "description", e.target.value)}
+                          className="h-7 text-xs"
+                          placeholder="Event description..."
+                        />
+                      </td>
+                      <td className="py-1.5 px-2">
+                        <Input
+                          type="number"
+                          value={ev.qty}
+                          onChange={(e) => updateSCEvent(ev.id, "qty", parseInt(e.target.value) || 0)}
+                          className="h-7 text-xs font-mono text-right"
+                        />
+                      </td>
+                      <td className="py-1.5 px-2">
+                        <div className="flex items-center gap-0.5">
+                          <span className="text-[10px] text-muted-foreground">$</span>
+                          <Input
+                            type="number"
+                            value={ev.cost}
+                            onChange={(e) => updateSCEvent(ev.id, "cost", parseFloat(e.target.value) || 0)}
+                            className="h-7 text-xs font-mono text-right"
+                          />
+                        </div>
+                      </td>
+                      <td className="py-1.5 px-2 text-center">
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => removeSCEvent(ev.id)}>
+                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                {scEvents.length > 0 && (
+                  <tfoot>
+                    <tr className="border-t-2 border-border">
+                      <td colSpan={3} className="py-2 px-2 font-bold text-foreground">Totals</td>
+                      <td className="py-2 px-2 text-right font-mono font-bold text-foreground">
+                        {scEvents.reduce((s, e) => s + e.qty, 0).toLocaleString()}
+                      </td>
+                      <td className="py-2 px-2 text-right font-mono font-bold text-destructive">
+                        {fmt(scEvents.reduce((s, e) => s + e.cost, 0))}
+                      </td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </CardContent></Card>
+
+            {scEvents.length === 0 && (
+              <Card className="mt-4 border-dashed">
+                <CardContent className="p-6 text-center">
+                  <p className="text-sm text-muted-foreground mb-2">No scheduled events. The simulation will use auto-trigger logic based on buffer levels.</p>
+                  <Button size="sm" variant="outline" onClick={resetSCEvents}>
+                    Load Default Scenario
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Timeline visualization */}
+            {scEvents.length > 0 && (
+              <>
+                <SectionHeader sub="Visual timeline of your scheduled supply chain events">EVENT TIMELINE</SectionHeader>
+                <Card><CardContent className="p-4">
+                  <div className="relative pl-5 border-l-2 border-accent/30 space-y-3">
+                    {scEvents
+                      .sort((a, b) => a.date.localeCompare(b.date))
+                      .map((ev) => {
+                        const colorClass = SC_EVENT_COLORS[ev.type] || "text-foreground";
+                        return (
+                          <div key={ev.id} className="relative">
+                            <div className={`absolute -left-[23px] top-1 w-3 h-3 rounded-full border-2 border-background ${
+                              ev.type.startsWith("tube") ? "bg-accent" :
+                              ev.type.startsWith("production") ? "bg-warning" :
+                              "bg-success"
+                            }`} />
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <span className="text-xs font-bold text-foreground">{format(new Date(ev.date + "T00:00:00"), "MMM d")}</span>
+                                <Badge variant="outline" className={`ml-2 text-[10px] ${colorClass}`}>
+                                  {SC_EVENT_LABELS[ev.type]}
+                                </Badge>
+                                <span className="text-xs text-muted-foreground ml-2">{ev.description}</span>
+                              </div>
+                              <div className="flex items-center gap-3 ml-2 whitespace-nowrap">
+                                {ev.qty > 0 && <span className="text-xs font-mono font-semibold text-foreground">{ev.qty.toLocaleString()}</span>}
+                                {ev.cost > 0 && <span className="text-xs font-mono font-semibold text-destructive">-{fmt(ev.cost)}</span>}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </CardContent></Card>
+              </>
+            )}
+          </TabsContent>
+
+          {/* ── Tab 5: Action Plan ───────────────────────────── */}
           <TabsContent value="actions">
             {model.scheduledExpenses.length > 0 && (
               <>
