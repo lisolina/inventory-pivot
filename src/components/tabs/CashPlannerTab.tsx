@@ -60,13 +60,34 @@ function weeksInMonthForWeek(weekIndex: number): number {
 // ── Supply Chain Event Types ────────────────────────────────────────
 type SCEventType = "tube_order" | "tube_payment" | "tube_arrival" | "production_start" | "production_complete" | "freight_arrival";
 
+type SCProduct = "tubes" | "finished_product";
+
 interface SupplyChainEvent {
   id: string;
   date: string; // YYYY-MM-DD
   type: SCEventType;
+  product: SCProduct;
   description: string;
   qty: number;
   cost: number;
+}
+
+const SC_PRODUCT_LABELS: Record<SCProduct, string> = {
+  tubes: "Tubes",
+  finished_product: "Spaghetti Dust",
+};
+
+function defaultProductForType(type: SCEventType): SCProduct {
+  switch (type) {
+    case "tube_order":
+    case "tube_payment":
+    case "tube_arrival":
+    case "production_start":
+      return "tubes";
+    case "production_complete":
+    case "freight_arrival":
+      return "finished_product";
+  }
 }
 
 const SC_EVENT_LABELS: Record<SCEventType, string> = {
@@ -88,17 +109,17 @@ const SC_EVENT_COLORS: Record<SCEventType, string> = {
 };
 
 const defaultScheduledEvents: SupplyChainEvent[] = [
-  { id: "sc-1", date: "2026-03-02", type: "tube_order", description: "30k tubes ordered, deposit 25%", qty: 30000, cost: 2325 },
-  { id: "sc-2", date: "2026-03-16", type: "tube_payment", description: "Printing complete, 25%", qty: 0, cost: 2325 },
-  { id: "sc-3", date: "2026-04-05", type: "tube_payment", description: "Balance before ship, 50%", qty: 0, cost: 4650 },
-  { id: "sc-4", date: "2026-04-12", type: "tube_arrival", description: "Air freight tranche — 15k tubes", qty: 15000, cost: 0 },
-  { id: "sc-5", date: "2026-05-03", type: "tube_arrival", description: "Ocean freight tranche — 15k tubes", qty: 15000, cost: 0 },
-  { id: "sc-6", date: "2026-05-10", type: "production_start", description: "Run 1 — 15k tubes consumed", qty: 15000, cost: 0 },
-  { id: "sc-7", date: "2026-05-17", type: "production_complete", description: "Run 1 done → freight ships", qty: 15000, cost: 0 },
-  { id: "sc-8", date: "2026-05-24", type: "freight_arrival", description: "Run 1 — 15k units arrive at Sabah", qty: 15000, cost: 0 },
-  { id: "sc-9", date: "2026-05-17", type: "production_start", description: "Run 2 — 15k tubes consumed", qty: 15000, cost: 0 },
-  { id: "sc-10", date: "2026-05-24", type: "production_complete", description: "Run 2 done", qty: 15000, cost: 0 },
-  { id: "sc-11", date: "2026-05-31", type: "freight_arrival", description: "Run 2 — 15k units arrive at Sabah", qty: 15000, cost: 0 },
+  { id: "sc-1", date: "2026-03-02", type: "tube_order", product: "tubes", description: "30k tubes ordered, deposit 25%", qty: 30000, cost: 2325 },
+  { id: "sc-2", date: "2026-03-16", type: "tube_payment", product: "tubes", description: "Printing complete, 25%", qty: 0, cost: 2325 },
+  { id: "sc-3", date: "2026-04-05", type: "tube_payment", product: "tubes", description: "Balance before ship, 50%", qty: 0, cost: 4650 },
+  { id: "sc-4", date: "2026-04-12", type: "tube_arrival", product: "tubes", description: "Air freight tranche — 15k tubes", qty: 15000, cost: 0 },
+  { id: "sc-5", date: "2026-05-03", type: "tube_arrival", product: "tubes", description: "Ocean freight tranche — 15k tubes", qty: 15000, cost: 0 },
+  { id: "sc-6", date: "2026-05-10", type: "production_start", product: "tubes", description: "Run 1 — 15k tubes consumed", qty: 15000, cost: 0 },
+  { id: "sc-7", date: "2026-05-17", type: "production_complete", product: "finished_product", description: "Run 1 done → freight ships", qty: 15000, cost: 0 },
+  { id: "sc-8", date: "2026-05-24", type: "freight_arrival", product: "finished_product", description: "Run 1 — 15k units arrive at Sabah", qty: 15000, cost: 0 },
+  { id: "sc-9", date: "2026-05-17", type: "production_start", product: "tubes", description: "Run 2 — 15k tubes consumed", qty: 15000, cost: 0 },
+  { id: "sc-10", date: "2026-05-24", type: "production_complete", product: "finished_product", description: "Run 2 done", qty: 15000, cost: 0 },
+  { id: "sc-11", date: "2026-05-31", type: "freight_arrival", product: "finished_product", description: "Run 2 — 15k units arrive at Sabah", qty: 15000, cost: 0 },
 ];
 
 const SC_EVENTS_STORAGE_KEY = "lisolina-sc-events";
@@ -106,7 +127,14 @@ const SC_EVENTS_STORAGE_KEY = "lisolina-sc-events";
 function loadSavedSCEvents(): SupplyChainEvent[] {
   try {
     const saved = localStorage.getItem(SC_EVENTS_STORAGE_KEY);
-    if (saved) return JSON.parse(saved);
+    if (saved) {
+      const parsed = JSON.parse(saved) as any[];
+      // Backfill product field for events saved before this feature
+      return parsed.map(ev => ({
+        ...ev,
+        product: ev.product || defaultProductForType(ev.type),
+      }));
+    }
   } catch {}
   return defaultScheduledEvents;
 }
@@ -1006,10 +1034,12 @@ export function CashPlannerTab() {
   // SC event CRUD
   const addSCEvent = useCallback(() => {
     const newId = `sc-${Date.now()}`;
+    const defaultType: SCEventType = "tube_arrival";
     setSCEvents(prev => [...prev, {
       id: newId,
       date: format(new Date(), "yyyy-MM-dd"),
-      type: "tube_arrival" as SCEventType,
+      type: defaultType,
+      product: defaultProductForType(defaultType),
       description: "",
       qty: 0,
       cost: 0,
@@ -1017,7 +1047,15 @@ export function CashPlannerTab() {
   }, []);
 
   const updateSCEvent = useCallback((id: string, field: keyof SupplyChainEvent, value: any) => {
-    setSCEvents(prev => prev.map(ev => ev.id === id ? { ...ev, [field]: value } : ev));
+    setSCEvents(prev => prev.map(ev => {
+      if (ev.id !== id) return ev;
+      const updated = { ...ev, [field]: value };
+      // Auto-set product when type changes
+      if (field === "type") {
+        updated.product = defaultProductForType(value as SCEventType);
+      }
+      return updated;
+    }));
   }, []);
 
   const removeSCEvent = useCallback((id: string) => {
@@ -1492,8 +1530,14 @@ export function CashPlannerTab() {
               <Button size="sm" variant="default" onClick={addSCEvent}>
                 <Plus className="h-3.5 w-3.5 mr-1" /> Add Event
               </Button>
+              <Button size="sm" variant="default" onClick={() => {
+                localStorage.setItem(SC_EVENTS_STORAGE_KEY, JSON.stringify(scEvents));
+                toast({ title: "Schedule saved", description: `${scEvents.length} events saved. Simulation updated.` });
+              }}>
+                <Save className="h-3.5 w-3.5 mr-1" /> Save Schedule
+              </Button>
               <Button size="sm" variant="outline" onClick={resetSCEvents}>
-                <RotateCcw className="h-3.5 w-3.5 mr-1" /> Reset to Default
+                <RotateCcw className="h-3.5 w-3.5 mr-1" /> Reset
               </Button>
               <span className="text-[11px] text-muted-foreground ml-2">
                 {scEvents.length} events • Auto-trigger kicks in after last scheduled event
@@ -1505,7 +1549,8 @@ export function CashPlannerTab() {
                 <thead>
                   <tr className="border-b border-border">
                     <th className="text-left py-1.5 px-2 font-bold text-muted-foreground w-[120px]">Date</th>
-                    <th className="text-left py-1.5 px-2 font-bold text-muted-foreground w-[160px]">Type</th>
+                    <th className="text-left py-1.5 px-2 font-bold text-muted-foreground w-[150px]">Type</th>
+                    <th className="text-left py-1.5 px-2 font-bold text-muted-foreground w-[140px]">Product</th>
                     <th className="text-left py-1.5 px-2 font-bold text-muted-foreground">Description</th>
                     <th className="text-right py-1.5 px-2 font-bold text-muted-foreground w-[90px]">Qty</th>
                     <th className="text-right py-1.5 px-2 font-bold text-muted-foreground w-[100px]">Cost</th>
@@ -1533,6 +1578,18 @@ export function CashPlannerTab() {
                           <SelectContent>
                             {(Object.keys(SC_EVENT_LABELS) as SCEventType[]).map(t => (
                               <SelectItem key={t} value={t} className="text-xs">{SC_EVENT_LABELS[t]}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </td>
+                      <td className="py-1.5 px-2">
+                        <Select value={ev.product} onValueChange={(v) => updateSCEvent(ev.id, "product", v)}>
+                          <SelectTrigger className="h-7 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(Object.keys(SC_PRODUCT_LABELS) as SCProduct[]).map(p => (
+                              <SelectItem key={p} value={p} className="text-xs">{SC_PRODUCT_LABELS[p]}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
@@ -1575,7 +1632,7 @@ export function CashPlannerTab() {
                 {scEvents.length > 0 && (
                   <tfoot>
                     <tr className="border-t-2 border-border">
-                      <td colSpan={3} className="py-2 px-2 font-bold text-foreground">Totals</td>
+                      <td colSpan={4} className="py-2 px-2 font-bold text-foreground">Totals</td>
                       <td className="py-2 px-2 text-right font-mono font-bold text-foreground">
                         {scEvents.reduce((s, e) => s + e.qty, 0).toLocaleString()}
                       </td>
@@ -1622,6 +1679,9 @@ export function CashPlannerTab() {
                                 <span className="text-xs font-bold text-foreground">{format(new Date(ev.date + "T00:00:00"), "MMM d")}</span>
                                 <Badge variant="outline" className={`ml-2 text-[10px] ${colorClass}`}>
                                   {SC_EVENT_LABELS[ev.type]}
+                                </Badge>
+                                <Badge variant="secondary" className="ml-1 text-[10px]">
+                                  {SC_PRODUCT_LABELS[ev.product]}
                                 </Badge>
                                 <span className="text-xs text-muted-foreground ml-2">{ev.description}</span>
                               </div>
