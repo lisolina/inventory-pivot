@@ -8,7 +8,8 @@ import { cn } from "@/lib/utils";
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
 
-type Msg = { role: "user" | "assistant" | "system"; content: string };
+type ToolEvent = { name: string; ok: boolean; error?: string };
+type Msg = { role: "user" | "assistant" | "system"; content: string; tools?: ToolEvent[] };
 
 async function buildLiveContext(): Promise<string> {
   const today = new Date();
@@ -71,10 +72,12 @@ async function streamChat({
   messages,
   onDelta,
   onDone,
+  onToolEvent,
 }: {
   messages: Msg[];
   onDelta: (deltaText: string) => void;
   onDone: () => void;
+  onToolEvent?: (ev: ToolEvent) => void;
 }) {
   const resp = await fetch(CHAT_URL, {
     method: "POST",
@@ -114,6 +117,10 @@ async function streamChat({
       }
       try {
         const parsed = JSON.parse(jsonStr);
+        if (parsed.tool_event && onToolEvent) {
+          onToolEvent(parsed.tool_event as ToolEvent);
+          continue;
+        }
         const content = parsed.choices?.[0]?.delta?.content as string | undefined;
         if (content) onDelta(content);
       } catch {
@@ -133,6 +140,10 @@ async function streamChat({
       if (jsonStr === "[DONE]") continue;
       try {
         const parsed = JSON.parse(jsonStr);
+        if (parsed.tool_event && onToolEvent) {
+          onToolEvent(parsed.tool_event as ToolEvent);
+          continue;
+        }
         const content = parsed.choices?.[0]?.delta?.content as string | undefined;
         if (content) onDelta(content);
       } catch { /* ignore */ }
@@ -238,16 +249,26 @@ export default function AIChatWidget() {
     setInput("");
     setLoading(true);
     assistantBuffer.current = "";
+    const toolBuffer: ToolEvent[] = [];
 
     const upsertAssistant = (delta: string) => {
       assistantBuffer.current += delta;
       setMessages((prev) => {
         const last = prev[prev.length - 1];
         if (last?.role === "assistant") {
-          return prev.map((m, i) => (i === prev.length - 1 ? { ...m, content: assistantBuffer.current } : m));
+          return prev.map((m, i) => (i === prev.length - 1 ? { ...m, content: assistantBuffer.current, tools: toolBuffer.length ? [...toolBuffer] : m.tools } : m));
         }
-        return [...prev, { role: "assistant", content: assistantBuffer.current }];
+        return [...prev, { role: "assistant", content: assistantBuffer.current, tools: toolBuffer.length ? [...toolBuffer] : undefined }];
       });
+    };
+    const handleToolEvent = (ev: ToolEvent) => {
+      toolBuffer.push(ev);
+      // Surface a refresh signal for tabs to re-fetch
+      if (ev.ok) {
+        try { window.dispatchEvent(new CustomEvent("ai-data-changed", { detail: ev })); } catch {}
+      }
+      // Make sure the assistant bubble exists so chips show even before text arrives
+      upsertAssistant("");
     };
 
     try {
@@ -256,6 +277,7 @@ export default function AIChatWidget() {
         messages: [...sys, ...messages, userMsg],
         onDelta: upsertAssistant,
         onDone: () => setLoading(false),
+        onToolEvent: handleToolEvent,
       });
     } catch (e) {
       console.error(e);
@@ -328,6 +350,24 @@ export default function AIChatWidget() {
                     )}
                   >
                     {m.content}
+                    {m.tools && m.tools.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {m.tools.map((t, j) => (
+                          <span
+                            key={j}
+                            className={cn(
+                              "inline-flex items-center gap-1 text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border",
+                              t.ok
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                : "bg-rose-50 text-rose-700 border-rose-200"
+                            )}
+                            title={t.error ?? "applied"}
+                          >
+                            {t.ok ? "✓" : "!"} {t.name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
