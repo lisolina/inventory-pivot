@@ -8,6 +8,7 @@ import { RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { SortableTableHead, useSort, sortData } from "@/components/SortableTableHead";
+import SourceLink from "@/components/SourceLink";
 
 interface SheetItem {
   product_name: string;
