@@ -86,7 +86,7 @@ export function ProductionRunsTab() {
   useEffect(() => { load(); }, []);
 
   const advanceStage = async (run: Run, target: Stage) => {
-    const patch: Record<string, unknown> = { stage: target };
+    const patch: any = { stage: target };
     const dateField = STAGE_DATE_FIELD[target];
     if (dateField) patch[dateField] = new Date().toISOString();
     setRuns((prev) => prev.map((r) => (r.id === run.id ? { ...r, stage: target } : r)));
