@@ -140,7 +140,10 @@ export const InventoryTab = () => {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-semibold">Inventory</h2>
+        <h2 className="text-2xl font-semibold flex items-center gap-2">
+          Inventory
+          <SourceLink source="inventory" />
+        </h2>
         <div className="flex items-center gap-3">
           {lastSynced && (
             <span className="text-xs text-muted-foreground">
