@@ -243,13 +243,29 @@ async function executeTool(name: string, input: any): Promise<{ ok: boolean; res
     switch (name) {
       case "update_cash_balance": {
         const date = input.date || new Date().toISOString().slice(0, 10);
+        const balance = Number(input.balance);
+        const note = input.notes ?? "Updated by AI chat";
         const { data, error } = await sb
           .from("cash_balance")
-          .insert({ balance: input.balance, notes: input.notes ?? null, date })
+          .insert({ balance, notes: note, date })
           .select()
           .single();
         if (error) throw error;
-        return { ok: true, result: data };
+
+        const { data: entry, error: entryError } = await sb
+          .from("cash_entries")
+          .insert({
+            date: new Date(`${date}T12:00:00`).toISOString(),
+            type: "balance_update",
+            amount: balance,
+            balance_after: balance,
+            category: "cash_balance",
+            description: note,
+          })
+          .select()
+          .single();
+        if (entryError) throw entryError;
+        return { ok: true, result: { cash_balance: data, cash_entry: entry } };
       }
       case "add_expense": {
         const { data, error } = await sb
