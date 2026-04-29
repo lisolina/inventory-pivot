@@ -17,6 +17,7 @@ import { AlertTriangle, TrendingUp, Package, DollarSign, ShieldCheck, Save, Rota
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import { addWeeks, addDays, format, differenceInWeeks, startOfMonth, getDaysInMonth, getDay } from "date-fns";
+import SourceLink from "@/components/SourceLink";
 
 // ── Epoch: weeks start on Sunday Dec 28, 2025 ──────────────────────
 const EPOCH = new Date(2025, 11, 28); // Sunday
@@ -1352,7 +1353,9 @@ export function CashPlannerTab() {
       <ResizablePanel defaultSize={20} minSize={15} maxSize={45}>
       <ScrollArea className="h-full border-r border-border bg-card px-3.5 py-4">
         <div className="flex items-center justify-between mb-3">
-          <span className="text-[11px] font-bold tracking-widest text-accent">MODEL INPUTS</span>
+          <span className="text-[11px] font-bold tracking-widest text-accent flex items-center gap-2">
+            MODEL INPUTS <SourceLink source="cash" />
+          </span>
         </div>
         <div className="flex gap-1.5 mb-4">
           <Button size="sm" variant="default" className="flex-1 h-8 text-xs" onClick={handleSave}>
