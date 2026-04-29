@@ -10,26 +10,31 @@ serve(async (req) => {
 
   try {
     const { messages, stream: streamRequested = true } = await req.json();
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
+    const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
+    if (!ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not configured");
 
     const clientMessages = Array.isArray(messages) ? messages : [];
-    const hasClientSystem = clientMessages.some((m: any) => m.role === "system");
-    const finalMessages = hasClientSystem
-      ? clientMessages
-      : [
-          { role: "system", content: "You are an expert inventory assistant. Be concise. When asked about this app, you know there is a dashboard with inventory, pending orders, email POs, and Google Sheets sync. If you need data, ask the user to sync first." },
-          ...clientMessages,
-        ];
+    // Anthropic takes `system` as a top-level string, not a message
+    const systemMsgs = clientMessages.filter((m: any) => m.role === "system");
+    const convoMsgs = clientMessages
+      .filter((m: any) => m.role === "user" || m.role === "assistant")
+      .map((m: any) => ({ role: m.role, content: String(m.content ?? "") }));
+    const systemPrompt =
+      systemMsgs.map((m: any) => String(m.content ?? "")).join("\n\n") ||
+      "You are an expert business operating assistant. Be concise and commercially minded.";
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        messages: finalMessages,
+        model: "claude-sonnet-4-5",
+        max_tokens: 4096,
+        system: systemPrompt,
+        messages: convoMsgs,
         stream: streamRequested,
       }),
     });
@@ -42,14 +47,14 @@ serve(async (req) => {
         });
       }
       if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "Payment required, please add funds to your Lovable AI workspace." }), {
+        return new Response(JSON.stringify({ error: "Payment required, please add credits to your Anthropic account." }), {
           status: 402,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       const t = await response.text();
-      console.error("AI gateway error:", response.status, t);
-      return new Response(JSON.stringify({ error: "AI gateway error" }), {
+      console.error("Anthropic error:", response.status, t);
+      return new Response(JSON.stringify({ error: `Anthropic error: ${t}` }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -57,12 +62,65 @@ serve(async (req) => {
 
     if (!streamRequested) {
       const json = await response.json();
-      return new Response(JSON.stringify(json), {
+      // Translate Anthropic non-streaming response -> OpenAI shape
+      const text = Array.isArray(json?.content)
+        ? json.content.filter((b: any) => b.type === "text").map((b: any) => b.text).join("")
+        : "";
+      const openaiShaped = {
+        id: json?.id,
+        choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: json?.stop_reason ?? "stop" }],
+        usage: json?.usage,
+      };
+      return new Response(JSON.stringify(openaiShaped), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    return new Response(response.body, {
+    // Translate Anthropic SSE -> OpenAI-shaped SSE so existing client parser works.
+    const upstream = response.body!;
+    const translated = new ReadableStream({
+      async start(controller) {
+        const reader = upstream.getReader();
+        const decoder = new TextDecoder();
+        const encoder = new TextEncoder();
+        let buffer = "";
+        const sendDelta = (text: string) => {
+          const chunk = { choices: [{ index: 0, delta: { content: text } }] };
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+        };
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            let idx: number;
+            while ((idx = buffer.indexOf("\n")) !== -1) {
+              let line = buffer.slice(0, idx);
+              buffer = buffer.slice(idx + 1);
+              if (line.endsWith("\r")) line = line.slice(0, -1);
+              if (!line.startsWith("data: ")) continue;
+              const data = line.slice(6).trim();
+              if (!data) continue;
+              try {
+                const evt = JSON.parse(data);
+                if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
+                  sendDelta(evt.delta.text || "");
+                } else if (evt.type === "message_stop") {
+                  controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
+                }
+              } catch { /* ignore partial */ }
+            }
+          }
+          controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
+        } catch (err) {
+          console.error("stream translate error:", err);
+        } finally {
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(translated, {
       headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
     });
   } catch (e) {
