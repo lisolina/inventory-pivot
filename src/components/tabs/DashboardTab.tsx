@@ -6,6 +6,7 @@ import { DollarSign, Package, ShoppingCart, TrendingUp, AlertTriangle, Check, Tr
 import { supabase } from "@/integrations/supabase/client";
 import { TasksTile } from "@/components/TasksTile";
 import { CashFlowChart } from "@/components/CashFlowChart";
+import { StaleDataBanners } from "@/components/StaleDataBanners";
 
 interface DashboardTabProps {
   onNavigate?: (tab: string) => void;
@@ -145,6 +146,7 @@ export const DashboardTab = ({ onNavigate }: DashboardTabProps) => {
 
   return (
     <div className="space-y-6">
+      <StaleDataBanners />
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard title="Cash on Hand" value={metrics.cashOnHand} icon={DollarSign} subtitle="Includes pending charges" onClick={() => onNavigate?.("money")} />
         <MetricCard title="Inventory Value" value={metrics.inventoryValue} icon={Package} subtitle="Finished products only" />
