@@ -5,6 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
+import SourceLink from "@/components/SourceLink";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Trash2 } from "lucide-react";
 import { EditableCell } from "@/components/EditableCell";
@@ -110,6 +111,10 @@ export function MarginsTab() {
 
   return (
     <div className="space-y-6">
+      <div className="flex items-center justify-end gap-3 text-xs text-muted-foreground">
+        <span>Sources:</span>
+        <SourceLink source="margins" withLabel />
+      </div>
       {PRODUCT_LINES.map((pl) => (
         <Card key={pl}>
           <CardHeader className="flex flex-row items-center justify-between">
