@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -169,8 +169,8 @@ export function BankWeeklyTab() {
             </TableHeader>
             <TableBody>
               {weeklyTotals.map(({ week, rows, inflow, outflow, ending }) => (
-                <>
-                  <TableRow key={week} className={cn("font-semibold", rowColor(ending, floor))}>
+                <Fragment key={week}>
+                  <TableRow className={cn("font-semibold", rowColor(ending, floor))}>
                     <TableCell>{week}</TableCell>
                     <TableCell colSpan={2} className="text-muted-foreground">Week summary</TableCell>
                     <TableCell className="text-right font-mono">${inflow.toLocaleString()}</TableCell>
@@ -191,7 +191,7 @@ export function BankWeeklyTab() {
                       <TableCell><Button size="icon" variant="ghost" onClick={() => removeFlow(r.id)}><Trash2 className="h-4 w-4" /></Button></TableCell>
                     </TableRow>
                   ))}
-                </>
+                </Fragment>
               ))}
             </TableBody>
           </Table>
