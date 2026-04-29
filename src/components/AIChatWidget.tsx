@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Drawer, DrawerContent, DrawerTrigger, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
@@ -7,7 +8,64 @@ import { MessageSquare, ExternalLink, Send } from "lucide-react";
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
 
-type Msg = { role: "user" | "assistant"; content: string };
+type Msg = { role: "user" | "assistant" | "system"; content: string };
+
+async function buildLiveContext(): Promise<string> {
+  const today = new Date();
+  const eight = new Date(today); eight.setDate(today.getDate() + 56);
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString();
+
+  const [bal, flows, inv, runs, monthRev] = await Promise.all([
+    supabase.from("cash_balance").select("date,balance").order("date", { ascending: false }).limit(1).maybeSingle(),
+    supabase.from("cash_flows").select("week_starting,description,inflow,outflow,status")
+      .gte("week_starting", today.toISOString().slice(0, 10))
+      .lte("week_starting", eight.toISOString().slice(0, 10))
+      .order("week_starting"),
+    supabase.from("inventory_items").select("product_name,units_on_hand,reorder_level").limit(200),
+    supabase.from("production_runs").select("run_id,run_name,stage,target_units").not("stage", "in", "(complete,shipped)"),
+    supabase.from("cash_entries").select("amount,type,date").gte("date", monthStart),
+  ]);
+
+  const balance = bal.data?.balance ?? 0;
+  const balanceDate = bal.data?.date ?? "n/a";
+
+  const lowInv = (inv.data ?? []).filter((r: any) => {
+    const oh = parseFloat(String(r.units_on_hand ?? "").replace(/[^0-9.-]/g, "")) || 0;
+    const rp = parseFloat(String(r.reorder_level ?? "").replace(/[^0-9.-]/g, "")) || 0;
+    return rp > 0 && oh < rp;
+  }).slice(0, 20).map((r: any) => `${r.product_name} (on hand ${r.units_on_hand}, reorder ${r.reorder_level})`).join("; ") || "none";
+
+  const activeRuns = (runs.data ?? []).map((r: any) => `${r.run_id} ${r.run_name} — ${r.stage} (target ${r.target_units})`).join("; ") || "none";
+
+  const upcoming = (flows.data ?? []).slice(0, 30).map((f: any) =>
+    `${f.week_starting}: ${f.description ?? "(no desc)"} +$${Number(f.inflow || 0).toLocaleString()} -$${Number(f.outflow || 0).toLocaleString()} [${f.status ?? "forecast"}]`
+  ).join("; ") || "none";
+
+  const monthRevenue = (monthRev.data ?? [])
+    .filter((e: any) => e.type === "inflow" || e.type === "in" || e.type === "income")
+    .reduce((s: number, e: any) => s + Number(e.amount || 0), 0);
+
+  return `You are Dylan's business operating system for L'Isolina Pasta LLC, a Brooklyn-based specialty food brand. You have access to live operational data pulled from the database. Your job is to help Dylan make fast, high-quality decisions as a solo founder managing cash flow, inventory, production, wholesale accounts, and DTC.
+
+LIVE DATA AS OF ${today.toISOString()}:
+- Cash balance: $${Number(balance).toLocaleString()} (as of ${balanceDate})
+- Operating floor: $15,000 — never drop below this
+- Current month revenue (cash inflows MTD): $${monthRevenue.toLocaleString()}
+- Inventory alerts: ${lowInv}
+- Active production runs: ${activeRuns}
+- Upcoming cash obligations (next 8 weeks): ${upcoming}
+
+Business context:
+- Faire is 77% of revenue, pays next-day after fulfillment
+- Misfits Market is strategically most important retail account
+- Run #1 (12,000 units SD) ships ~May 4, inventory arrives ~May 11
+- Run #2 (18,000 units SD) targets AES pack May 18-25, ship June 1
+- Three new SKUs launching Fall 2026: Porcini, Cacio e Pepe, Assassina
+- Key vendor contacts: Raina Dutton (RMSC ingredients), AES (co-packer), Jemstone (tubes), Rolando (warehouse Sabah)
+- Three active loans: Original Wayflyer ($1,078 biweekly ~Sep 2026), New Wayflyer ($1,459-3,311 biweekly Nov 2026), GoodBread ($450.65 semi-monthly Apr 2027)
+
+Answer questions about cash position, inventory risk, production timing, channel margins, and help draft vendor/customer emails when asked. Be direct, specific, and commercially minded.`;
+}
 
 async function streamChat({
   messages,
@@ -93,10 +151,17 @@ export default function AIChatWidget() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const assistantBuffer = useRef("");
+  const systemRef = useRef<string>("");
 
   useEffect(() => {
     if (open) document.title = "AI Inventory Chat | Assistant";
     return () => { document.title = "L'Isolina Inventory Management System"; };
+  }, [open]);
+
+  useEffect(() => {
+    if (open) {
+      buildLiveContext().then((s) => { systemRef.current = s; }).catch((e) => console.error("ctx fail", e));
+    }
   }, [open]);
 
   const send = async () => {
@@ -120,8 +185,9 @@ export default function AIChatWidget() {
     };
 
     try {
+      const sys: Msg[] = systemRef.current ? [{ role: "system", content: systemRef.current }] : [];
       await streamChat({
-        messages: [...messages, userMsg],
+        messages: [...sys, ...messages, userMsg],
         onDelta: upsertAssistant,
         onDone: () => setLoading(false),
       });
