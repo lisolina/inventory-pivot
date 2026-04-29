@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
+import SourceLink from "@/components/SourceLink";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Trash2 } from "lucide-react";
 import { EditableCell } from "@/components/EditableCell";
@@ -120,6 +121,10 @@ export function BankWeeklyTab() {
 
   return (
     <div className="space-y-6">
+      <div className="flex items-center justify-end gap-3 text-xs text-muted-foreground">
+        <span>Sources:</span>
+        <SourceLink source="bankWeekly" withLabel /> · <SourceLink source="cash" withLabel /> · <SourceLink source="qboDashboard" withLabel />
+      </div>
       <div className="grid md:grid-cols-2 gap-4">
         <Card>
           <CardHeader><CardTitle>Bank Balance</CardTitle></CardHeader>
