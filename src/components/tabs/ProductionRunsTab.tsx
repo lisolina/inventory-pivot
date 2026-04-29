@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import SourceLink from "@/components/SourceLink";
+import { useAiRefresh } from "@/hooks/use-ai-refresh";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Trash2, Check } from "lucide-react";
 import { EditableCell } from "@/components/EditableCell";
@@ -85,6 +86,7 @@ export function ProductionRunsTab() {
     setLoading(false);
   };
   useEffect(() => { load(); }, []);
+  useAiRefresh(load);
 
   const advanceStage = async (run: Run, target: Stage) => {
     const patch: any = { stage: target };

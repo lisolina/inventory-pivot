@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Trash2, Send, Loader2, Globe, BookOpen, Code, Palette, ShoppingBag } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import SourceLink from "@/components/SourceLink";
+import { useAiRefresh } from "@/hooks/use-ai-refresh";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 
@@ -57,6 +58,7 @@ export const WorldBuildingTab = () => {
   };
 
   useEffect(() => { fetchTasks(); }, []);
+  useAiRefresh(fetchTasks);
 
   const handleAdd = async () => {
     try {

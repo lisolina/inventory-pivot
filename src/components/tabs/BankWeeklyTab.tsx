@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import SourceLink from "@/components/SourceLink";
+import { useAiRefresh } from "@/hooks/use-ai-refresh";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Trash2 } from "lucide-react";
 import { EditableCell } from "@/components/EditableCell";
@@ -68,6 +69,7 @@ export function BankWeeklyTab() {
     setLoading(false);
   };
   useEffect(() => { load(); }, []);
+  useAiRefresh(load);
 
   useEffect(() => { localStorage.setItem(FLOOR_KEY, String(floor)); }, [floor]);
 
