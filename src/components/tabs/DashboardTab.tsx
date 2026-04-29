@@ -4,6 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DollarSign, Package, ShoppingCart, TrendingUp, AlertTriangle, Check, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import SourceLink from "@/components/SourceLink";
+import { useAiRefresh } from "@/hooks/use-ai-refresh";
+import { useCallback } from "react";
 import { TasksTile } from "@/components/TasksTile";
 import { CashFlowChart } from "@/components/CashFlowChart";
 import { StaleDataBanners } from "@/components/StaleDataBanners";
@@ -61,8 +64,7 @@ export const DashboardTab = ({ onNavigate }: DashboardTabProps) => {
     localStorage.setItem("dismissedAlerts", JSON.stringify(dismissedAlerts));
   }, [dismissedAlerts]);
 
-  useEffect(() => {
-    const fetchMetrics = async () => {
+  const fetchMetrics = useCallback(async () => {
       const [orderCountRes, cashRes, invRes, revenueRes, dueInvRes] = await Promise.all([
         supabase.from("orders").select("*", { count: "exact", head: true }).in("status", ["new", "processing"]),
         supabase.from("cash_entries").select("date, type, amount, balance_after").order("date", { ascending: false }).limit(500),
@@ -131,10 +133,10 @@ export const DashboardTab = ({ onNavigate }: DashboardTabProps) => {
         weekRevenue: weekRevenue > 0 ? `$${weekRevenue.toLocaleString()}` : "—",
       });
       setAlerts(alertList);
-    };
-
-    fetchMetrics();
   }, []);
+
+  useEffect(() => { fetchMetrics(); }, [fetchMetrics]);
+  useAiRefresh(fetchMetrics);
 
   const visibleAlerts = alerts.filter((a) => !dismissedAlerts.includes(a.id));
 
@@ -147,6 +149,10 @@ export const DashboardTab = ({ onNavigate }: DashboardTabProps) => {
   return (
     <div className="space-y-6">
       <StaleDataBanners />
+      <div className="flex items-center justify-end gap-3 text-xs text-muted-foreground">
+        <span>Sources:</span>
+        <SourceLink source="cash" withLabel /> · <SourceLink source="inventory" withLabel /> · <SourceLink source="orders" withLabel /> · <SourceLink source="qboReports" withLabel />
+      </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard title="Cash on Hand" value={metrics.cashOnHand} icon={DollarSign} subtitle="Includes pending charges" onClick={() => onNavigate?.("money")} />
         <MetricCard title="Inventory Value" value={metrics.inventoryValue} icon={Package} subtitle="Finished products only" />

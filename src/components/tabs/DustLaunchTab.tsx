@@ -10,6 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, Package, Calendar, DollarSign, Clock, Trash2, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Send, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import SourceLink from "@/components/SourceLink";
+import { useAiRefresh } from "@/hooks/use-ai-refresh";
 import { useToast } from "@/hooks/use-toast";
 import { format, differenceInDays, startOfMonth, endOfMonth, addMonths, subMonths, eachDayOfInterval, isSameDay, isSameMonth, getDay } from "date-fns";
 
@@ -100,6 +102,7 @@ export const DustLaunchTab = () => {
   };
 
   useEffect(() => { fetchData(); }, []);
+  useAiRefresh(fetchData);
 
   const handleAddProduct = async () => {
     try {
@@ -269,6 +272,10 @@ export const DustLaunchTab = () => {
 
   return (
     <div className="space-y-6">
+      <div className="flex items-center justify-end gap-3 text-xs text-muted-foreground">
+        <span>Sources:</span>
+        <SourceLink source="dust" withLabel /> · <SourceLink source="production" withLabel />
+      </div>
       {/* NL Input */}
       <Card>
         <CardContent className="pt-4 pb-3">
