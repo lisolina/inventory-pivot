@@ -84,7 +84,7 @@ Deno.serve(async (req) => {
 
     if (tokensErr || !tokens) {
       return new Response(JSON.stringify({ error: "QuickBooks not connected", connected: false }), {
-        status: 404,
+        status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
