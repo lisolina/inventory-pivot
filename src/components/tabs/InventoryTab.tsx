@@ -52,6 +52,7 @@ export const InventoryTab = () => {
       const { error } = await supabase.functions.invoke("sync-google-sheets", { body: { action: "read" } });
       if (error) throw error;
       await fetchAll();
+      try { localStorage.setItem("lastSheetsSync", String(Date.now())); } catch {}
       toast({ title: "Sync Complete", description: "Inventory updated from Google Sheets" });
     } catch {
       toast({ title: "Sync Failed", variant: "destructive" });

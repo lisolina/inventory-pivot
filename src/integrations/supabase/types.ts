@@ -14,6 +14,30 @@ export type Database = {
   }
   public: {
     Tables: {
+      cash_balance: {
+        Row: {
+          balance: number
+          created_at: string
+          date: string
+          id: string
+          notes: string | null
+        }
+        Insert: {
+          balance: number
+          created_at?: string
+          date: string
+          id?: string
+          notes?: string | null
+        }
+        Update: {
+          balance?: number
+          created_at?: string
+          date?: string
+          id?: string
+          notes?: string | null
+        }
+        Relationships: []
+      }
       cash_entries: {
         Row: {
           amount: number
@@ -44,6 +68,87 @@ export type Database = {
           description?: string | null
           id?: string
           type?: string
+        }
+        Relationships: []
+      }
+      cash_flows: {
+        Row: {
+          category: string | null
+          created_at: string
+          description: string | null
+          id: string
+          inflow: number | null
+          notes: string | null
+          outflow: number | null
+          status: string | null
+          updated_at: string
+          week_starting: string
+        }
+        Insert: {
+          category?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          inflow?: number | null
+          notes?: string | null
+          outflow?: number | null
+          status?: string | null
+          updated_at?: string
+          week_starting: string
+        }
+        Update: {
+          category?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          inflow?: number | null
+          notes?: string | null
+          outflow?: number | null
+          status?: string | null
+          updated_at?: string
+          week_starting?: string
+        }
+        Relationships: []
+      }
+      channel_margins: {
+        Row: {
+          channel: string
+          cm_dollars: number | null
+          cm_percent: number | null
+          created_at: string
+          fulfillment_fees_per_unit: number | null
+          id: string
+          landed_cogs: number | null
+          last_updated: string
+          net_price_per_unit: number | null
+          notes: string | null
+          product_line: string
+        }
+        Insert: {
+          channel: string
+          cm_dollars?: number | null
+          cm_percent?: number | null
+          created_at?: string
+          fulfillment_fees_per_unit?: number | null
+          id?: string
+          landed_cogs?: number | null
+          last_updated?: string
+          net_price_per_unit?: number | null
+          notes?: string | null
+          product_line: string
+        }
+        Update: {
+          channel?: string
+          cm_dollars?: number | null
+          cm_percent?: number | null
+          created_at?: string
+          fulfillment_fees_per_unit?: number | null
+          id?: string
+          landed_cogs?: number | null
+          last_updated?: string
+          net_price_per_unit?: number | null
+          notes?: string | null
+          product_line?: string
         }
         Relationships: []
       }
@@ -667,6 +772,119 @@ export type Database = {
         }
         Relationships: []
       }
+      production_run_costs: {
+        Row: {
+          amount: number | null
+          created_at: string
+          date_due: string | null
+          date_incurred: string | null
+          date_paid: string | null
+          expense_type: string | null
+          id: string
+          notes: string | null
+          run_id: string
+          status: string | null
+          vendor: string | null
+        }
+        Insert: {
+          amount?: number | null
+          created_at?: string
+          date_due?: string | null
+          date_incurred?: string | null
+          date_paid?: string | null
+          expense_type?: string | null
+          id?: string
+          notes?: string | null
+          run_id: string
+          status?: string | null
+          vendor?: string | null
+        }
+        Update: {
+          amount?: number | null
+          created_at?: string
+          date_due?: string | null
+          date_incurred?: string | null
+          date_paid?: string | null
+          expense_type?: string | null
+          id?: string
+          notes?: string | null
+          run_id?: string
+          status?: string | null
+          vendor?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "production_run_costs_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "production_runs"
+            referencedColumns: ["run_id"]
+          },
+        ]
+      }
+      production_runs: {
+        Row: {
+          actual_units: number | null
+          aes_pack_complete: string | null
+          aes_pack_start: string | null
+          created_at: string
+          expected_revenue: number | null
+          id: string
+          ingredients_staged_date: string | null
+          notes: string | null
+          product_line: string | null
+          run_id: string
+          run_name: string
+          shipped_date: string | null
+          skus: string[] | null
+          stage: string
+          target_units: number | null
+          tubes_landed_date: string | null
+          tubes_ordered_date: string | null
+          updated_at: string
+        }
+        Insert: {
+          actual_units?: number | null
+          aes_pack_complete?: string | null
+          aes_pack_start?: string | null
+          created_at?: string
+          expected_revenue?: number | null
+          id?: string
+          ingredients_staged_date?: string | null
+          notes?: string | null
+          product_line?: string | null
+          run_id: string
+          run_name: string
+          shipped_date?: string | null
+          skus?: string[] | null
+          stage?: string
+          target_units?: number | null
+          tubes_landed_date?: string | null
+          tubes_ordered_date?: string | null
+          updated_at?: string
+        }
+        Update: {
+          actual_units?: number | null
+          aes_pack_complete?: string | null
+          aes_pack_start?: string | null
+          created_at?: string
+          expected_revenue?: number | null
+          id?: string
+          ingredients_staged_date?: string | null
+          notes?: string | null
+          product_line?: string | null
+          run_id?: string
+          run_name?: string
+          shipped_date?: string | null
+          skus?: string[] | null
+          stage?: string
+          target_units?: number | null
+          tubes_landed_date?: string | null
+          tubes_ordered_date?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       products: {
         Row: {
           active: boolean
@@ -754,6 +972,39 @@ export type Database = {
           refresh_token?: string
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      recipes: {
+        Row: {
+          amount_per_unit_grams: number | null
+          cost_per_unit: number | null
+          created_at: string
+          id: string
+          ingredient: string
+          notes: string | null
+          sku: string
+          supplier: string | null
+        }
+        Insert: {
+          amount_per_unit_grams?: number | null
+          cost_per_unit?: number | null
+          created_at?: string
+          id?: string
+          ingredient: string
+          notes?: string | null
+          sku: string
+          supplier?: string | null
+        }
+        Update: {
+          amount_per_unit_grams?: number | null
+          cost_per_unit?: number | null
+          created_at?: string
+          id?: string
+          ingredient?: string
+          notes?: string | null
+          sku?: string
+          supplier?: string | null
         }
         Relationships: []
       }
