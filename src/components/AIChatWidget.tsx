@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Drawer, DrawerContent, DrawerTrigger, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { useToast } from "@/hooks/use-toast";
-import { MessageSquare, ExternalLink, Send } from "lucide-react";
+import { MessageSquare, ExternalLink, Send, X, GripHorizontal } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
 
@@ -152,6 +152,26 @@ export default function AIChatWidget() {
   const [loading, setLoading] = useState(false);
   const assistantBuffer = useRef("");
   const systemRef = useRef<string>("");
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Window position + size (persisted)
+  const [pos, setPos] = useState<{ x: number; y: number }>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("aiChat.pos") || "null");
+      if (saved) return saved;
+    } catch {}
+    return { x: typeof window !== "undefined" ? window.innerWidth - 480 : 100, y: typeof window !== "undefined" ? window.innerHeight - 620 : 100 };
+  });
+  const [size, setSize] = useState<{ w: number; h: number }>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("aiChat.size") || "null");
+      if (saved) return saved;
+    } catch {}
+    return { w: 460, h: 600 };
+  });
+
+  useEffect(() => { localStorage.setItem("aiChat.pos", JSON.stringify(pos)); }, [pos]);
+  useEffect(() => { localStorage.setItem("aiChat.size", JSON.stringify(size)); }, [size]);
 
   useEffect(() => {
     if (open) document.title = "AI Inventory Chat | Assistant";
@@ -163,6 +183,52 @@ export default function AIChatWidget() {
       buildLiveContext().then((s) => { systemRef.current = s; }).catch((e) => console.error("ctx fail", e));
     }
   }, [open]);
+
+  // Auto-scroll to bottom whenever messages update or window opens
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [messages, open, loading]);
+
+  // Dragging
+  const dragState = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+  const onDragStart = (e: React.MouseEvent) => {
+    dragState.current = { startX: e.clientX, startY: e.clientY, origX: pos.x, origY: pos.y };
+    window.addEventListener("mousemove", onDragMove);
+    window.addEventListener("mouseup", onDragEnd);
+  };
+  const onDragMove = (e: MouseEvent) => {
+    const s = dragState.current; if (!s) return;
+    const nx = Math.max(0, Math.min(window.innerWidth - 100, s.origX + (e.clientX - s.startX)));
+    const ny = Math.max(0, Math.min(window.innerHeight - 60, s.origY + (e.clientY - s.startY)));
+    setPos({ x: nx, y: ny });
+  };
+  const onDragEnd = () => {
+    dragState.current = null;
+    window.removeEventListener("mousemove", onDragMove);
+    window.removeEventListener("mouseup", onDragEnd);
+  };
+
+  // Resizing (bottom-right corner)
+  const resizeState = useRef<{ startX: number; startY: number; origW: number; origH: number } | null>(null);
+  const onResizeStart = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    resizeState.current = { startX: e.clientX, startY: e.clientY, origW: size.w, origH: size.h };
+    window.addEventListener("mousemove", onResizeMove);
+    window.addEventListener("mouseup", onResizeEnd);
+  };
+  const onResizeMove = (e: MouseEvent) => {
+    const s = resizeState.current; if (!s) return;
+    const nw = Math.max(320, Math.min(window.innerWidth - 40, s.origW + (e.clientX - s.startX)));
+    const nh = Math.max(320, Math.min(window.innerHeight - 40, s.origH + (e.clientY - s.startY)));
+    setSize({ w: nw, h: nh });
+  };
+  const onResizeEnd = () => {
+    resizeState.current = null;
+    window.removeEventListener("mousemove", onResizeMove);
+    window.removeEventListener("mouseup", onResizeEnd);
+  };
 
   const send = async () => {
     const text = input.trim();
@@ -203,45 +269,102 @@ export default function AIChatWidget() {
   };
 
   return (
-    <Drawer open={open} onOpenChange={setOpen}>
-      <DrawerTrigger asChild>
+    <>
+      {!open && (
         <button
-          className="fixed bottom-6 right-6 inline-flex items-center gap-2 rounded-full border bg-card px-4 py-3 shadow-sm hover:bg-accent focus:outline-none"
+          onClick={() => setOpen(true)}
+          className="fixed bottom-6 right-6 z-40 inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-50/80 backdrop-blur px-4 py-3 shadow-md hover:bg-sky-100 focus:outline-none"
           aria-label="Open AI chat"
         >
-          <MessageSquare className="h-5 w-5" />
-          <span>Ask AI</span>
+          <MessageSquare className="h-5 w-5 text-sky-700" />
+          <span className="text-sky-900 font-medium">Ask AI</span>
         </button>
-      </DrawerTrigger>
-      <DrawerContent className="max-h-[80vh]">
-        <DrawerHeader className="flex items-center justify-between">
-          <DrawerTitle>AI Assistant</DrawerTitle>
-          <Button variant="ghost" size="sm" onClick={popout}>
-            <ExternalLink className="h-4 w-4 mr-2" /> Pop out
-          </Button>
-        </DrawerHeader>
-        <div className="px-4 pb-4 flex flex-col gap-3">
-          <div className="h-72 overflow-y-auto rounded-md border p-3 bg-background">
-            {messages.map((m, i) => (
-              <div key={i} className="mb-2">
-                <div className="text-xs text-muted-foreground mb-1">{m.role === "user" ? "You" : "Assistant"}</div>
-                <div className="whitespace-pre-wrap leading-relaxed">{m.content}</div>
-              </div>
-            ))}
+      )}
+
+      {open && (
+        <div
+          className="fixed z-50 flex flex-col rounded-xl border border-sky-200/70 shadow-2xl overflow-hidden"
+          style={{
+            left: pos.x,
+            top: pos.y,
+            width: size.w,
+            height: size.h,
+            background: "linear-gradient(180deg, hsla(200, 90%, 92%, 0.85) 0%, hsla(205, 85%, 88%, 0.78) 100%)",
+            backdropFilter: "blur(14px)",
+            WebkitBackdropFilter: "blur(14px)",
+          }}
+        >
+          {/* Header (drag handle) */}
+          <div
+            onMouseDown={onDragStart}
+            className="flex items-center justify-between px-4 py-2 cursor-move border-b border-sky-200/60 bg-sky-100/40 select-none"
+          >
+            <div className="flex items-center gap-2">
+              <GripHorizontal className="h-4 w-4 text-sky-700/70" />
+              <span className="text-sm font-semibold text-sky-900">AI Assistant</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button variant="ghost" size="sm" onClick={popout} className="h-7 px-2 text-sky-900 hover:bg-sky-200/50">
+                <ExternalLink className="h-3.5 w-3.5 mr-1" /> Pop out
+              </Button>
+              <Button variant="ghost" size="icon" onClick={() => setOpen(false)} className="h-7 w-7 text-sky-900 hover:bg-sky-200/50">
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
-          <div className="flex gap-2">
+
+          {/* Messages */}
+          <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+            {messages.map((m, i) => {
+              const isUser = m.role === "user";
+              return (
+                <div key={i} className={cn("flex w-full", isUser ? "justify-end" : "justify-start")}>
+                  <div
+                    className={cn(
+                      "max-w-[80%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap shadow-sm",
+                      isUser
+                        ? "bg-sky-600 text-white rounded-br-sm"
+                        : "bg-white/85 text-slate-800 rounded-bl-sm border border-sky-100"
+                    )}
+                  >
+                    {m.content}
+                  </div>
+                </div>
+              );
+            })}
+            {loading && (
+              <div className="flex justify-start">
+                <div className="bg-white/70 text-slate-500 text-xs rounded-2xl px-3 py-2 border border-sky-100">thinking…</div>
+              </div>
+            )}
+          </div>
+
+          {/* Input */}
+          <div className="p-3 border-t border-sky-200/60 bg-white/40 flex gap-2">
             <Input
               placeholder="Ask about inventory, e.g. 'What should I reorder this week?'"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && send()}
+              className="bg-white/80 border-sky-200 focus-visible:ring-sky-400"
             />
-            <Button onClick={send} disabled={loading}>
+            <Button onClick={send} disabled={loading} className="bg-sky-600 hover:bg-sky-700 text-white">
               <Send className="h-4 w-4" />
             </Button>
           </div>
+
+          {/* Resize handle */}
+          <div
+            onMouseDown={onResizeStart}
+            className="absolute bottom-0 right-0 h-4 w-4 cursor-se-resize"
+            style={{
+              background:
+                "linear-gradient(135deg, transparent 0 50%, hsla(205, 70%, 50%, 0.6) 50% 60%, transparent 60% 70%, hsla(205, 70%, 50%, 0.6) 70% 80%, transparent 80%)",
+            }}
+            aria-label="Resize"
+          />
         </div>
-      </DrawerContent>
-    </Drawer>
+      )}
+    </>
   );
 }
