@@ -7,9 +7,21 @@ import { MessageSquare, ExternalLink, Send, X, GripHorizontal } from "lucide-rea
 import { cn } from "@/lib/utils";
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
+const CHAT_HISTORY_KEY = "aiChat.messages";
+const DEFAULT_MESSAGES: Msg[] = [
+  { role: "assistant", content: "Hi! Ask me anything about inventory, sales velocity, or pending orders." },
+];
 
 type ToolEvent = { name: string; ok: boolean; error?: string };
 type Msg = { role: "user" | "assistant" | "system"; content: string; tools?: ToolEvent[] };
+
+function loadChatHistory(): Msg[] {
+  try {
+    const saved = JSON.parse(localStorage.getItem(CHAT_HISTORY_KEY) || "null");
+    if (Array.isArray(saved) && saved.length) return saved.filter((m) => m?.role !== "system");
+  } catch {}
+  return DEFAULT_MESSAGES;
+}
 
 async function buildLiveContext(): Promise<string> {
   const today = new Date();
@@ -156,9 +168,7 @@ async function streamChat({
 export default function AIChatWidget() {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
-  const [messages, setMessages] = useState<Msg[]>([
-    { role: "assistant", content: "Hi! Ask me anything about inventory, sales velocity, or pending orders." },
-  ]);
+  const [messages, setMessages] = useState<Msg[]>(loadChatHistory);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const assistantBuffer = useRef("");
@@ -183,6 +193,9 @@ export default function AIChatWidget() {
 
   useEffect(() => { localStorage.setItem("aiChat.pos", JSON.stringify(pos)); }, [pos]);
   useEffect(() => { localStorage.setItem("aiChat.size", JSON.stringify(size)); }, [size]);
+  useEffect(() => {
+    localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(messages.filter((m) => m.role !== "system").slice(-80)));
+  }, [messages]);
 
   useEffect(() => {
     if (open) document.title = "AI Inventory Chat | Assistant";
