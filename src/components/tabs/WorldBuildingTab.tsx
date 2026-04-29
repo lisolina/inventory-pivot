@@ -11,6 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Trash2, Send, Loader2, Globe, BookOpen, Code, Palette, ShoppingBag } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import SourceLink from "@/components/SourceLink";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 
@@ -129,6 +130,7 @@ export const WorldBuildingTab = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-semibold flex items-center gap-2"><Globe className="h-6 w-6" /> World Building</h2>
+        <SourceLink source="worldTasks" withLabel />
         <Dialog open={addOpen} onOpenChange={setAddOpen}>
           <DialogTrigger asChild><Button size="sm"><Plus className="h-4 w-4 mr-1" /> Add Task</Button></DialogTrigger>
           <DialogContent>
