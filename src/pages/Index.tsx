@@ -15,6 +15,10 @@ import { DustLaunchTab } from "@/components/tabs/DustLaunchTab";
 import { WorldBuildingTab } from "@/components/tabs/WorldBuildingTab";
 import { CashPlannerTab } from "@/components/tabs/CashPlannerTab";
 import { DustRunCalcTab } from "@/components/tabs/DustRunCalcTab";
+import { ProductionRunsTab } from "@/components/tabs/ProductionRunsTab";
+import { MarginsTab } from "@/components/tabs/MarginsTab";
+import { BankWeeklyTab } from "@/components/tabs/BankWeeklyTab";
+import { SheetsSyncBadge } from "@/components/SheetsSyncBadge";
 
 const Index = () => {
   const navigate = useNavigate();
@@ -52,21 +56,27 @@ const Index = () => {
               Your operational HQ — inventory, orders, and money in one place
             </p>
           </div>
-          <Button variant="ghost" size="sm" onClick={handleLogout} className="text-primary-foreground hover:bg-primary-foreground/10">
-            <LogOut className="h-4 w-4 mr-2" />
-            Logout
-          </Button>
+          <div className="flex items-center gap-3">
+            <SheetsSyncBadge />
+            <Button variant="ghost" size="sm" onClick={handleLogout} className="text-primary-foreground hover:bg-primary-foreground/10">
+              <LogOut className="h-4 w-4 mr-2" />
+              Logout
+            </Button>
+          </div>
         </div>
       </header>
 
       <main className="container mx-auto px-6 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="bg-muted">
+          <TabsList className="bg-muted flex-wrap h-auto">
             <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
             <TabsTrigger value="inventory">Inventory</TabsTrigger>
             <TabsTrigger value="orders">Orders</TabsTrigger>
             <TabsTrigger value="money">Money</TabsTrigger>
+            <TabsTrigger value="bank-weekly">Bank & Weekly</TabsTrigger>
             <TabsTrigger value="cash-planner">Cash Planner</TabsTrigger>
+            <TabsTrigger value="production">Production</TabsTrigger>
+            <TabsTrigger value="margins">Margins</TabsTrigger>
             <TabsTrigger value="sales-crm">Sales CRM</TabsTrigger>
             <TabsTrigger value="dust-launch">Dust Launch HQ</TabsTrigger>
             <TabsTrigger value="dust-run-calc">Dust Run Calc</TabsTrigger>
@@ -77,7 +87,10 @@ const Index = () => {
           <TabsContent value="inventory"><InventoryTab /></TabsContent>
           <TabsContent value="orders"><OrdersTab /></TabsContent>
           <TabsContent value="money"><MoneyTab /></TabsContent>
+          <TabsContent value="bank-weekly"><BankWeeklyTab /></TabsContent>
           <TabsContent value="cash-planner"><CashPlannerTab /></TabsContent>
+          <TabsContent value="production"><ProductionRunsTab /></TabsContent>
+          <TabsContent value="margins"><MarginsTab /></TabsContent>
           <TabsContent value="sales-crm"><SalesCRMTab /></TabsContent>
           <TabsContent value="dust-launch"><DustLaunchTab /></TabsContent>
           <TabsContent value="dust-run-calc"><DustRunCalcTab /></TabsContent>
