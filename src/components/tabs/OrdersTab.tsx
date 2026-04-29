@@ -13,6 +13,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/
 import { LineChart, Line, XAxis, YAxis, CartesianGrid } from "recharts";
 import { Plus, ExternalLink, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import SourceLink from "@/components/SourceLink";
 import { useToast } from "@/hooks/use-toast";
 import { POUploader } from "@/components/POUploader";
 import { ForwardedEmail } from "@/components/ForwardedEmail";
@@ -294,6 +295,10 @@ export const OrdersTab = () => {
 
   return (
     <div className="space-y-6">
+      <div className="flex items-center justify-end gap-3 text-xs text-muted-foreground">
+        <span>Sources:</span>
+        <SourceLink source="ordersFaire" withLabel /> · <SourceLink source="ordersDTC" withLabel /> · <SourceLink source="salesVelocity" withLabel />
+      </div>
       <Tabs defaultValue="open">
         <div className="flex items-center justify-between">
           <TabsList>
