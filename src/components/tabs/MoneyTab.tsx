@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, DollarSign, TrendingUp, TrendingDown, Link2, Loader2, CheckCircle2, ExternalLink, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import SourceLink from "@/components/SourceLink";
 import { useToast } from "@/hooks/use-toast";
 import { CSVUploader } from "@/components/CSVUploader";
 import { InvoiceDropZone } from "@/components/InvoiceDropZone";
@@ -260,6 +261,10 @@ export const MoneyTab = () => {
 
   return (
     <div className="space-y-6">
+      <div className="flex items-center justify-end gap-3 text-xs text-muted-foreground">
+        <span>Sources:</span>
+        <SourceLink source="qboDashboard" withLabel /> · <SourceLink source="cash" withLabel /> · <SourceLink source="expenses" withLabel /> · <SourceLink source="cashFlows" withLabel />
+      </div>
       {/* QuickBooks Connection */}
       <Card className="border-primary/20">
         <CardContent className="pt-6">
