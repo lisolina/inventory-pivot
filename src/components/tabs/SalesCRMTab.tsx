@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Plus, Mail, Phone, Calendar, AlertCircle, Copy, User } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import SourceLink from "@/components/SourceLink";
 import { useToast } from "@/hooks/use-toast";
 
 interface CRMAccount {
@@ -153,6 +154,10 @@ export const SalesCRMTab = () => {
 
   return (
     <div className="space-y-6">
+      <div className="flex items-center justify-end gap-3 text-xs text-muted-foreground">
+        <span>Sources:</span>
+        <SourceLink source="crm" withLabel />
+      </div>
       {/* Follow-up Reminders */}
       {needsFollowup.length > 0 && (
         <Card className="border-warning/30">
